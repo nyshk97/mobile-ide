@@ -69,10 +69,3 @@ iPhone アプリ                          Mac mini
 - 複数ホスト、設定同期、テーマ
 - Mac mini 側の常駐デーモン（SSH ポーリングで足りている間は不要）
 
-## 将来
-
-- 通知: Claude Code の hooks から Cloudflare Worker 経由で APNs に投げる
-- PolePole との状態共有（git バッジ、AI 完了の赤丸、MRU）
-- tmux control mode（`tmux -CC`）で window / pane 一覧を構造化して取得
-- libghostty の iOS ターゲットで PolePole と描画を揃える
-- Mac mini 側の PolePole のタブから同じ tmux セッションに attach する運用（OSC 9;4 の通過に `allow-passthrough` が要る）
