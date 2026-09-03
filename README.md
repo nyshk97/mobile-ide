@@ -15,7 +15,6 @@ iPhone から Mac mini に接続し、tmux 上のターミナル・Claude Code�
 - アプリを閉じても Mac mini 側のセッションは生き続け、次に開いたときに続きが見える
 - 写真やスクショを Claude に渡せる
 - PolePole でピン留めしているプロジェクト一覧をそのまま使い、管理を二重化しない
-- Claude アプリの Remote Control と併用できる（同じ tmux 内のセッションを両方から触る）
 
 ## 構成
 
