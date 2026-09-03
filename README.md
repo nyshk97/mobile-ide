@@ -19,7 +19,7 @@ iPhone から Mac mini に接続し、tmux 上のターミナル・Claude Code�
 - iPhone で作った新規 Claude Code（Codex）セッションを、Mac mini 内の PolePole 等のアプリから再開できる
 - Mac mini 内の PolePole 等のアプリで作った Claude Code（Codex）セッションを、iPhone から再開できる
 
-## 構成
+## 構成（案）
 
 ```
 iPhone アプリ                          Mac mini
@@ -48,7 +48,7 @@ iPhone アプリ                          Mac mini
 - リモートログイン有効 + 「リモートユーザーにフルディスクアクセスを許可」（dotfiles が `~/Library/CloudStorage/` 配下にあり、sshd から `.zshrc` を読むのに必要）
 - SSH の exec チャネルは `.zshrc` を読まないので、アプリ側で `PATH=/opt/homebrew/bin:...` を前置きしてからコマンドを流す。端末経路（tmux 内の対話シェル）は影響を受けない
 
-## MVP
+## MVP（案）
 
 ゴール: 「iPhone を開いて、Mac mini の既存プロジェクトで Claude Code に 1 タスク頼み、結果を見て閉じる」が完結する。
 
