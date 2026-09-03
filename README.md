@@ -15,6 +15,9 @@ iPhone から Mac mini に接続し、tmux 上のターミナル・Claude Code�
 - アプリを閉じても Mac mini 側のセッションは生き続け、次に開いたときに続きが見える
 - 写真やスクショを Claude に渡せる
 - PolePole でピン留めしているプロジェクト一覧をそのまま使い、管理を二重化しない
+- iPhone から新規 Claude Code（Codex）セッションを作成できる
+- iPhone で作った新規 Claude Code（Codex）セッションを、Mac mini 内の PolePole 等のアプリから再開できる
+- Mac mini 内の PolePole 等のアプリで作った Claude Code（Codex）セッションを、iPhone から再開できる
 
 ## 構成
 
