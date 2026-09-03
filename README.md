@@ -5,13 +5,13 @@ iPhone から Mac mini に接続し、tmux 上のターミナル・Claude Code�
 ## 背景
 
 - Mac mini を 24 時間 / 365 日起動させ、どこからでも開発環境として使えるようにしたい
-- 常用端末は折りたたみ iPhone（内側画面 7.8 インチ前後、4:3 に近い比率）を想定。開発中は iPad mini で代用する
+- 常用端末は折りたたみ iPhone（内側画面 7.8 インチ前後、4:3 に近い比率）を想定
 - PC では自作 IDE の [PolePole](https://github.com/nyshk97/ide) を使っている。スマホでも「プロジェクトを選んで端末を開き、Claude Code に頼む」までの動線を同じ感覚で辿りたい
 - Claude Code 公式の Remote Control は便利だが、bypass permissions が使えない・`/resume` などターミナル専用コマンドが使えない・Claude の外の素のシェル操作ができない、という制約がある。これらを SSH 経由で補う
 
 ## 実現したいこと
 
-- 折りたたみを開いて、Mac mini の既存プロジェクトで Claude Code / Codex に 1 タスク頼み、結果を見て閉じる、が完結する
+- iPhone を開いて、Mac mini の既存プロジェクトで Claude Code / Codex に 1 タスク頼み、結果を見て閉じる、が完結する
 - アプリを閉じても Mac mini 側のセッションは生き続け、次に開いたときに続きが見える
 - 写真やスクショを Claude に渡せる
 - PolePole でピン留めしているプロジェクト一覧をそのまま使い、管理を二重化しない
@@ -48,7 +48,7 @@ iPhone アプリ                          Mac mini
 
 ## MVP
 
-ゴール: 「折りたたみを開いて、Mac mini の既存プロジェクトで Claude Code に 1 タスク頼み、結果を見て閉じる」が完結する。
+ゴール: 「iPhone を開いて、Mac mini の既存プロジェクトで Claude Code に 1 タスク頼み、結果を見て閉じる」が完結する。
 
 ### 入れるもの
 
@@ -69,7 +69,7 @@ iPhone アプリ                          Mac mini
 
 ### 完成判定
 
-iPad mini + MacBook Air の tmux で次の 3 つが通ること。
+iPhone から MacBook Air の tmux に接続して次の 3 つが通ること。
 
 - アプリを開いてから端末に文字が打てるまで 5 秒以内
 - 端末を開いたままアプリを閉じて 10 分放置し、戻ったら再接続して Claude の続きの出力が見える
