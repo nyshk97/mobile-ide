@@ -9,7 +9,7 @@ struct ProjectRowView: View {
     var body: some View {
         HStack(spacing: 12) {
             Circle()
-                .fill(row.project.color?.color ?? Color.secondary.opacity(0.4))
+                .fill(row.project.color.color)
                 .frame(width: 12, height: 12)
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.project.displayName)

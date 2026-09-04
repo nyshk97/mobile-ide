@@ -16,7 +16,8 @@ struct Project: Decodable, Identifiable, Hashable {
     var lastOpenedAt: Date?
     var colorKey: String?
 
-    var color: ProjectColor? { colorKey.flatMap(ProjectColor.init(rawValue:)) }
+    /// PolePole と同じ解決: colorKey があればそれ、無ければ displayName から自動で決める
+    var color: ProjectColor { ProjectColor.resolve(key: colorKey, for: displayName) }
 
     init(id: String, path: String, displayName: String, isPinned: Bool = false, lastOpenedAt: Date? = nil, colorKey: String? = nil) {
         self.id = id
@@ -49,9 +50,22 @@ struct Project: Decodable, Identifiable, Hashable {
     }
 }
 
-/// PolePole の `ProjectColor.swift` と同じ 10 色（RGB も同じ値）。
+/// PolePole の `ProjectColor.swift` と同じ 10 色（RGB も同じ値）と、同じ自動割り当て。
 enum ProjectColor: String, CaseIterable {
     case red, orange, yellow, green, mint, teal, blue, indigo, purple, pink
+
+    /// colorKey が無いプロジェクトの色。PolePole と同じく表示名の Unicode スカラー値の合計を 10 で割った余り。
+    /// `Hasher` はプロセスごとにランダム seed が入るので使わない
+    static func automatic(for name: String) -> ProjectColor {
+        let all = ProjectColor.allCases
+        let sum = name.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+        return all[abs(sum) % all.count]
+    }
+
+    static func resolve(key: String?, for name: String) -> ProjectColor {
+        if let key, let color = ProjectColor(rawValue: key) { return color }
+        return automatic(for: name)
+    }
 
     var color: Color {
         switch self {

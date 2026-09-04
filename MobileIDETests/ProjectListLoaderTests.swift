@@ -64,6 +64,22 @@ final class ProjectListLoaderTests: XCTestCase {
     }
 }
 
+final class ProjectColorTests: XCTestCase {
+    /// PolePole のサイドバー（2026-09-04 のスクショ）と同じ色になること
+    func testAutomaticColorMatchesPolePole() {
+        XCTAssertEqual(ProjectColor.resolve(key: nil, for: "Dropbox"), .mint)
+        XCTAssertEqual(ProjectColor.resolve(key: nil, for: "daw"), .blue)
+        XCTAssertEqual(ProjectColor.resolve(key: nil, for: "browser"), .yellow)
+        XCTAssertEqual(ProjectColor.resolve(key: nil, for: "dmail"), .pink)
+        XCTAssertEqual(ProjectColor.resolve(key: nil, for: "mobile-ide"), .green)
+    }
+
+    func testExplicitKeyWins() {
+        XCTAssertEqual(ProjectColor.resolve(key: "red", for: "Dropbox"), .red)
+        XCTAssertEqual(ProjectColor.resolve(key: "unknown", for: "Dropbox"), .mint)
+    }
+}
+
 final class TmuxSessionNameTests: XCTestCase {
     func testSanitizeReplacesTmuxTargetCharacters() {
         XCTAssertEqual(TmuxSessionName.sanitize("b.c"), "b-c")
