@@ -211,3 +211,36 @@ python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOB
 ```
 
 手で確認する項目: 一覧が PolePole のサイドバーと同じ順・同じ色 / ピン留めの行をタップして tmux に入り、プロンプトの作業ディレクトリがそのプロジェクト / 戻ると行に印 / pull-to-refresh で更新
+
+## キーボードバー（#6）
+
+端末の下に常駐するバー（esc / ctrl / tab / ⇧tab / ^C / ~ / - | / ← ↓ ↑ → / ⏎ / キーボード切替）。SwiftTerm 標準のアクセサリは外している。
+Ctrl はワンショット（SwiftTerm の `controlModifier`）。矢印は DECCKM（`ESC [ ? 1 h/l`）を出力から追跡して `ESC [ A` / `ESC O A` を切り替える。
+
+### 自走検証（シミュレータ）
+
+`MOBILE_IDE_PRESS_KEYS`（DEBUG）でバーの操作を接続後に再現し、`cat -v` で制御文字を可視化して tmux 側で読む。
+
+```sh
+T=/opt/homebrew/bin/tmux; CONN=(--env MOBILE_IDE_HOST=127.0.0.1 --env MOBILE_IDE_USER=d0ne1s --env MOBILE_IDE_TERMINAL_AUTORUN=1)
+python3 scripts/console-run.py "${CONN[@]}" --env 'MOBILE_IDE_TERMINAL_TYPE=cat -v\n' \
+    --env MOBILE_IDE_PRESS_KEYS=esc,tab,shiftTab,up,down,left,right,tilde,slash,dash,pipe,enter,ctrlC --until "KEYS done" --keep
+$T capture-pane -p -t mobile-ide      # `^[<tab>^[[Z^[[A^[[B^[[D^[[C~/-|` の行と、`^C` のあとにプロンプト（0x03 で cat が終わった）
+python3 scripts/console-run.py "${CONN[@]}" --env 'MOBILE_IDE_TERMINAL_TYPE=printf "\\e[?1h"; cat -v\n' --env MOBILE_IDE_PRESS_KEYS=up,enter,ctrlC --until "KEYS done" --keep
+$T capture-pane -p -t mobile-ide      # `^[OA`（DECCKM オンで矢印がアプリケーション列になる）
+python3 scripts/console-run.py "${CONN[@]}" --env MOBILE_IDE_PRESS_KEYS=keyboard --until "KEYS done" --keep
+                                      # TERMINAL size の rows が増える（キーボードが閉じて端末が伸びる）。$T list-clients の高さも追従
+mise run shot                         # バーが端末の下にあり、キーボード上に SwiftTerm 標準の esc / ctrl / tab（灰色）が出ていない
+mise run test                         # TerminalKey のバイト列（矢印のモード切替・Shift+Tab・Ctrl+C）
+```
+
+- tmux はクライアントからの矢印をキーとして解釈してペインのモードに合わせて再送するので、tmux 越しでは `ESC [ A` / `ESC O A` のどちらを送っても内側のアプリには正しく届く。追跡の正しさは DECCKM をオンにした上の手順で見る
+- Ctrl ワンショットは SwiftTerm の `insertText` 経路（ソフトウェアキーボード）でしか消費されない。`MOBILE_IDE_TERMINAL_TYPE` は `send(text:)` なので Ctrl が乗らない。**実機で人間が確認する**
+
+### 実機（手で確認）
+
+- 日本語入力: `echo ` のあとに「テスト」と打って変換・確定 → Enter。`echo テスト` が 1 回だけ実行され、未確定のひらがなや重複が残らない（SwiftTerm は未確定文字列を送らない）
+- Ctrl ワンショット: `sleep 100` → ctrl（強調表示）→ `c` → 止まって強調が消える。続けて `c` は普通の文字
+- ^C キー: `sleep 100` → 1 タップで止まる
+- Claude Code: ⇧tab でモード切替、↑ で履歴、esc で入力が消える、確認プロンプトを矢印と ⏎ で答える
+- キーボード切替でキーボードが閉じて端末が伸び、バーは残る。横向きでバーが 1 行に収まるか横スクロールできる

@@ -11,21 +11,68 @@ struct TerminalScreen: View {
     @State private var session = PTYSession()
     @State private var surface: any TerminalSurface = SwiftTermSurface()
     @State private var wired = false
+    @State private var isControlArmed = false
+    @State private var isKeyboardVisible = false
 
     var body: some View {
-        TerminalSurfaceView(surface: surface)
-            .overlay { overlay }
-            .navigationTitle(target.sessionName)
-            .navigationBarTitleDisplayMode(.inline)
-            .onAppear(perform: wireUp)
-            .onDisappear { session.close() }
-            .onChange(of: session.state) { _, newState in
-                guard newState == .running, let text = LaunchOptions.terminalTextToType else { return }
-                Task {
-                    try? await Task.sleep(for: .seconds(1))
-                    session.send(Data(text.utf8))
-                }
+        VStack(spacing: 0) {
+            TerminalSurfaceView(surface: surface)
+                .overlay { overlay }
+            KeyboardBar(isControlArmed: isControlArmed, isKeyboardVisible: isKeyboardVisible, perform: perform)
+        }
+        .navigationTitle(target.sessionName)
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear(perform: wireUp)
+        .onDisappear { session.close() }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            isKeyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            isKeyboardVisible = false
+        }
+        .onChange(of: session.state) { _, newState in
+            guard newState == .running else { return }
+            Task { await runAutomation() }
+        }
+    }
+
+    /// バーの操作。バーからの入力もエミュレータ経由（`surface.send`）で `onInput` に流れる
+    private func perform(_ action: KeyboardBar.Action) {
+        switch action {
+        case .key(let key):
+            surface.send(bytes: key.bytes(applicationCursor: surface.usesApplicationCursorKeys))
+        case .toggleControl:
+            surface.controlPending.toggle()
+            isControlArmed = surface.controlPending
+        case .toggleKeyboard:
+            if isKeyboardVisible { surface.hideKeyboard() } else { surface.showKeyboard() }
+        }
+    }
+
+    /// 自走検証: MOBILE_IDE_TERMINAL_TYPE の送信と、MOBILE_IDE_PRESS_KEYS のバー操作の再現
+    private func runAutomation() async {
+        if let text = LaunchOptions.terminalTextToType {
+            try? await Task.sleep(for: .seconds(1))
+            session.send(Data(text.utf8))
+        }
+        guard let names = LaunchOptions.pressKeys else { return }
+        try? await Task.sleep(for: .seconds(1))
+        for name in names {
+            guard let action = KeyboardBar.Action(name: name) else {
+                print("KEYS unknown \(name)")
+                continue
             }
+            perform(action)
+            switch action {
+            case .toggleControl: print("KEYS pressed ctrl armed=\(isControlArmed)")
+            case .toggleKeyboard: print("KEYS pressed keyboard")
+            case .key(let key): print("KEYS pressed \(key.rawValue) appCursor=\(surface.usesApplicationCursorKeys)")
+            }
+            fflush(stdout)
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        print("KEYS done")
+        fflush(stdout)
     }
 
     @ViewBuilder
@@ -95,11 +142,12 @@ struct TerminalScreen: View {
             }
         }
         session.onOutput = { bytes in surface.feed(bytes) }
+        surface.onControlReset = { isControlArmed = false }
         // sizeChanged が onAppear より先に来ていたらここで開く
         if let size = surface.currentSize, session.state == .idle {
             start(size: size)
         }
-        DispatchQueue.main.async { surface.focus() }
+        DispatchQueue.main.async { surface.showKeyboard() }
     }
 
     private func start(size: TerminalSize? = nil) {
