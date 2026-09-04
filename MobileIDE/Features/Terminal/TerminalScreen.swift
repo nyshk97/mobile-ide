@@ -1,16 +1,19 @@
 import SwiftUI
 
-/// 端末画面。サーフェス 1 枚 + 接続中 / 切断のオーバーレイ。
+/// 端末画面。サーフェス 1 枚 + 接続中 / 切断のオーバーレイ + 再接続中のバナー。
 struct TerminalScreen: View {
     let target: TerminalTarget
 
     @Environment(ConnectionSettings.self) private var settings
     @Environment(SSHIdentity.self) private var identity
     @Environment(KnownHostStore.self) private var knownHosts
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var session = PTYSession()
     @State private var surface: any TerminalSurface = SwiftTermSurface()
+    @State private var network = NetworkPathObserver()
     @State private var wired = false
+    @State private var didAutomate = false
     @State private var isControlArmed = false
     @State private var isKeyboardVisible = false
 
@@ -18,20 +21,29 @@ struct TerminalScreen: View {
         VStack(spacing: 0) {
             TerminalSurfaceView(surface: surface)
                 .overlay { overlay }
+                .overlay(alignment: .top) { reconnectBanner }
             KeyboardBar(isControlArmed: isControlArmed, isKeyboardVisible: isKeyboardVisible, perform: perform)
         }
         .navigationTitle(target.sessionName)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear(perform: wireUp)
-        .onDisappear { session.close() }
+        .onDisappear {
+            network.stop()
+            session.close()
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             isKeyboardVisible = true
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             isKeyboardVisible = false
         }
+        .onChange(of: scenePhase) { _, phase in
+            // 別アプリから戻った・ロック解除した。バックグラウンドでソケットが止められていたかもしれない
+            if phase == .active { session.verifyAlive() }
+        }
         .onChange(of: session.state) { _, newState in
-            guard newState == .running else { return }
+            guard newState == .running, !didAutomate else { return }
+            didAutomate = true
             Task { await runAutomation() }
         }
     }
@@ -49,30 +61,59 @@ struct TerminalScreen: View {
         }
     }
 
-    /// 自走検証: MOBILE_IDE_TERMINAL_TYPE の送信と、MOBILE_IDE_PRESS_KEYS のバー操作の再現
+    /// 自走検証: MOBILE_IDE_TERMINAL_TYPE の送信、MOBILE_IDE_PRESS_KEYS のバー操作の再現、MOBILE_IDE_PROBE_AFTER の生存判定。
+    /// 最初に running になったときだけ走る（再接続のたびに文字列を送り直さない）
     private func runAutomation() async {
         if let text = LaunchOptions.terminalTextToType {
             try? await Task.sleep(for: .seconds(1))
             session.send(Data(text.utf8))
         }
-        guard let names = LaunchOptions.pressKeys else { return }
-        try? await Task.sleep(for: .seconds(1))
-        for name in names {
-            guard let action = KeyboardBar.Action(name: name) else {
-                print("KEYS unknown \(name)")
-                continue
+        if let names = LaunchOptions.pressKeys {
+            try? await Task.sleep(for: .seconds(1))
+            for name in names {
+                guard let action = KeyboardBar.Action(name: name) else {
+                    print("KEYS unknown \(name)")
+                    continue
+                }
+                perform(action)
+                switch action {
+                case .toggleControl: print("KEYS pressed ctrl armed=\(isControlArmed)")
+                case .toggleKeyboard: print("KEYS pressed keyboard")
+                case .key(let key): print("KEYS pressed \(key.rawValue) appCursor=\(surface.usesApplicationCursorKeys)")
+                }
+                fflush(stdout)
+                try? await Task.sleep(for: .milliseconds(300))
             }
-            perform(action)
-            switch action {
-            case .toggleControl: print("KEYS pressed ctrl armed=\(isControlArmed)")
-            case .toggleKeyboard: print("KEYS pressed keyboard")
-            case .key(let key): print("KEYS pressed \(key.rawValue) appCursor=\(surface.usesApplicationCursorKeys)")
-            }
+            print("KEYS done")
             fflush(stdout)
-            try? await Task.sleep(for: .milliseconds(300))
         }
-        print("KEYS done")
-        fflush(stdout)
+        if let seconds = LaunchOptions.probeAfter {
+            try? await Task.sleep(for: .seconds(seconds))
+            print("TERMINAL probe start")
+            fflush(stdout)
+            session.verifyAlive()
+        }
+    }
+
+    @ViewBuilder
+    private var reconnectBanner: some View {
+        if case .reconnecting(let attempt) = session.state {
+            HStack(spacing: 10) {
+                ProgressView()
+                Text("再接続中… \(attempt) 回目")
+                    .font(.footnote)
+                Spacer()
+                Button("今すぐ") { session.retryNow() }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.bar)
+            .overlay(alignment: .bottom) { Divider() }
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
     }
 
     @ViewBuilder
@@ -83,8 +124,15 @@ struct TerminalScreen: View {
                 Color(.systemBackground).opacity(0.6)
                 ProgressView("接続中…")
             }
+        case .running, .reconnecting:
+            EmptyView()
+        case .disconnected(.shellExited(let reason)):
+            stopped(title: "セッションを抜けました", detail: reason) {
+                Button("再接続") { start() }
+                    .buttonStyle(.borderedProminent)
+            }
         case .disconnected(let reason):
-            stopped(title: "切断されました", detail: reason) {
+            stopped(title: "切断されました", detail: reason.description) {
                 Button("再接続") { start() }
                     .buttonStyle(.borderedProminent)
             }
@@ -105,8 +153,6 @@ struct TerminalScreen: View {
                 Button("再試行") { start() }
                     .buttonStyle(.borderedProminent)
             }
-        case .running:
-            EmptyView()
         }
     }
 
@@ -143,6 +189,9 @@ struct TerminalScreen: View {
         }
         session.onOutput = { bytes in surface.feed(bytes) }
         surface.onControlReset = { isControlArmed = false }
+        // Wi-Fi ↔ モバイル回線の切り替わりやオフラインからの復帰。無音で死んだ接続を探る契機
+        network.onChange = { session.verifyAlive() }
+        network.start()
         // sizeChanged が onAppear より先に来ていたらここで開く
         if let size = surface.currentSize, session.state == .idle {
             start(size: size)

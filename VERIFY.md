@@ -60,8 +60,10 @@ mise run device-run         # build → devicectl install → launch
 
 ```sh
 sudo systemsetup -setremotelogin on
-printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' | sudo tee /etc/ssh/sshd_config.d/00-mobile-ide.conf
+printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nClientAliveInterval 15\nClientAliveCountMax 3\n' | sudo tee /etc/ssh/sshd_config.d/00-mobile-ide.conf
 ```
+
+`ClientAliveInterval` は、切れた接続の sshd-session と tmux クライアントを 45 秒程度で掃除させるため（既定の 0 だと数時間残る）。アプリ側は attach 時に `-D` で古いクライアントを蹴るので無くても動くが、Mac mini（#9）では入れておく。
 
 `00-` で置くのは、後から読まれた設定に負けないため（sshd は先に読まれた値が勝つ）。macOS の sshd は接続ごとに launchd が起動するので再起動は不要。Claude Code の Bash からは sudo が通らないので Terminal.app で実行する。
 
@@ -250,3 +252,37 @@ mise run test                         # TerminalKey のバイト列（矢印の�
 - ^C キー: `sleep 100` → 1 タップで止まる
 - Claude Code: ⇧tab でモード切替、↑ で履歴、esc で入力が消える、確認プロンプトを矢印と ⏎ で答える
 - キーボード切替でキーボードが閉じて端末が伸び、バーは残る。横向きでバーが 1 行に収まるか横スクロールできる
+
+## 再接続（#7）
+
+回線断を検出したら `TERMINAL lost <reason>` → `TERMINAL reconnecting attempt=<n> delay=<sec>`（1, 2, 4, 8, 15 秒で頭打ち）→ `TERMINAL connected` と自動で張り直す。端末の描画は消さず上端にバナー（「再接続中… n 回目」+「今すぐ」）を出す。
+フォアグラウンド復帰（scenePhase）と経路変更（`NWPathMonitor`、`NETWORK path up|down <interfaces>`）では同じ接続で `true` を exec して生存を探り、3 秒で返らなければ `TERMINAL probe dead` → 遅延なしで張り直す（生きていれば `TERMINAL probe ok` だけ）。
+tmux 内のシェルが exit した正常終了は `TERMINAL disconnected shell exited` で止まり、全面オーバーレイの「再接続」ボタンに任せる（自動では張り直さない）。attach は `tmux new-session -A -D` で他クライアントを detach する。
+
+切れ方の分類は Citadel の `client.isConnected`。回線が死んでも inbound はエラーなしで普通に終わるので、終了時に接続が生きていればシェルの exit、死んでいれば回線断とみなす。
+
+### 自走検証（シミュレータ）
+
+sshd と authorized_keys には触らず、`scripts/ssh-proxy.py`（127.0.0.1:2222 → 22 の TCP 中継）に SIGHUP（接続を切る）/ SIGUSR1（凍結: ソケットを保ったまま中継と EOF の伝搬を止める。解除も同じ）/ SIGTERM（止める → 接続拒否）を送って回線断を起こす。
+
+```sh
+mise run boot && mise run install
+python3 scripts/verify-reconnect.py      # 5 シナリオ 8 項目（SUMMARY: 8 / 8 passed、約 3 分）。tmux セッション form を作って途中で kill する
+```
+
+- 1: SIGHUP → `lost connection closed` → `reconnecting attempt=1 delay=1` → `connected`。`session_created` が同じで、クライアントは断の後に作られた 1 件
+- 2: 中継を止めたまま → `reconnect failed attempt=1..4`（Connection refused）の間隔が 1, 2, 4, 8 秒 → 中継を戻すと attempt=5（15 秒待ち）で `connected`。`/tmp/mobile-ide-reconnecting.png` にバナー
+- 3: `MOBILE_IDE_PROBE_AFTER=6` + 凍結 → `probe start` の 3 秒後に `probe dead` → `reconnecting attempt=1 delay=0` → `connected`。凍結中は古い tmux クライアントが残っているので、再接続後に 1 件になれば `-D` が効いている証明
+- 4: 凍結なし → `probe ok` だけで `reconnecting` / `lost` が出ない
+- 5: `tmux kill-session` → `disconnected shell exited` で止まる。`/tmp/mobile-ide-exited.png` に全面オーバーレイ
+- 検証は `MOBILE_IDE_OPEN_PROJECT=form` で `form` セッションを使う（`MOBILE_IDE_VERIFY_PROJECT` で変更可）。**`mobile-ide` を使うと実機 iPhone が同じセッションに attach しているときに `-D` で蹴り合い、クライアント数の判定が狂う**（2026-09-04 に実例: 幅 57 桁の実機クライアントが混ざった）
+- `scripts/verify-terminal.py` の 6 項目も通ること（`-D` を足しても端末の基本が壊れていない）
+- scenePhase はシミュレータから起こせないので `MOBILE_IDE_PROBE_AFTER`（DEBUG）で同じ経路を呼ぶ。scenePhase と経路変更の配線は実機で見る
+
+### 実機（手で確認）
+
+- 端末を開いたまま Wi-Fi をオフ → 数秒後オン。バナーが出て、同じ tmux セッションの続きが表示される（`claude` を起動しておくと分かりやすい）
+- 別アプリに切り替えて 1 分以上置いて戻る。生きていれば何も出ない、切れていればバナー → 続きが表示される
+- 機内モードを 2 分入れて戻す → 自動で戻る。機内モード中に「今すぐ」を押しても多重にならない（バナーの回数が 1 つずつ進む）
+- tmux 内で `exit` → 「セッションを抜けました」で止まり、勝手に作り直されない。「再接続」で新しいセッションが開く
+- Mac 側で `tmux attach -t <同じセッション>` してから iPhone で再接続 → Mac 側が detach される（`-D`）

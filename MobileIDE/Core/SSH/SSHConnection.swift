@@ -89,8 +89,9 @@ enum SSHConnection {
 
     struct ConnectTimeout: Error {}
 
-    /// 最初に終わった操作の結果を返し、残りはキャンセルする（sleep 系はキャンセルで止まる。connect は止まらないが放置してよい）
-    private static func firstToFinish<T: Sendable>(_ operations: [@Sendable () async throws -> T]) async throws -> T {
+    /// 最初に終わった操作の結果を返し、残りはキャンセルする（sleep 系はキャンセルで止まる。connect や exec は止まらないが放置してよい）。
+    /// `PTYSession` の生存判定（exec と締め切りの競走）でも使う
+    static func firstToFinish<T: Sendable>(_ operations: [@Sendable () async throws -> T]) async throws -> T {
         let once = FirstToFinishState()
         return try await withCheckedThrowingContinuation { continuation in
             once.tasks = operations.map { operation in

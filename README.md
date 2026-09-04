@@ -58,7 +58,7 @@ iPhone アプリ                          Mac mini
 2. **プロジェクト一覧**: `projects.json` を読んで PolePole のピン順で表示。`tmux list-sessions` と突き合わせ、生きているセッションがある行にマーク
 3. **セッションを開く**: タップで PTY チャネルを開き `tmux new-session -A -s <name> -c <path>` を流す。初回も 2 回目も同じコマンド
 4. **端末画面**: SwiftTerm 1 枚 + 端末の下に常駐するキーボードバー（Esc / Ctrl / Tab / Shift+Tab / Ctrl+C / `~ / - |` / 矢印 4 方向 / Enter / キーボード切替）。Ctrl はトグルで次の 1 キーに乗せる。日本語入力は確定後にだけ送る
-5. **再接続**: フォアグラウンド復帰時と回線エラー時に、黙って SSH を張り直して同じ tmux セッションに attach し直す
+5. **再接続**: 回線断を検出したらバックオフ付きで黙って SSH を張り直し、同じ tmux セッションに attach し直す。フォアグラウンド復帰時と経路変更時（Wi-Fi ↔ モバイル回線）は短い exec で生存を探り、死んでいれば張り直す。attach は `tmux new-session -A -D` で、切れた前の自分などの他クライアントを detach する。tmux 内で exit した正常終了は自動では張り直さない
 6. **画像添付**: 写真ピッカーで選び、SFTP で `~/.claude/uploads/` に置き、`@<path> ` を端末に流し込む
 
 ### 意図的に外すもの
