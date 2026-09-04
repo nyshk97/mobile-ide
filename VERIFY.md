@@ -9,7 +9,7 @@
 
 ## セットアップ
 
-`project.yml` を編集したら必ず再生成する。
+`project.yml` を編集したら必ず再生成する。ユニットテスト（`MobileIDETests`。parse・セッション名など純粋なロジック）は `mise run test`（起動中のシミュレータで `xcodebuild test`）。
 
 ```sh
 mise run gen    # = xcodegen generate
@@ -179,3 +179,35 @@ python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOB
 - 標準アクセサリ（esc / ctrl / tab / 矢印）が効く。`claude` を起動して Esc で中断、矢印で履歴
 - 横向きに回転すると tmux のステータスバーが横幅いっぱいに描き直される（リサイズが届いている）
 - 戻るで画面を閉じてもう一度開くと、同じ tmux セッションの続きが見える（`-A`）
+
+## プロジェクト一覧（#5）
+
+Home に PolePole の `projects.json`（ピン留めは配列順、その他は `lastOpenedAt` 降順）を出し、`tmux list-sessions` と突き合わせて生きているセッションに印を付ける。タップで `tmux new-session -A -s <ディレクトリ名> -c <path>`。取得は SSH の exec 1 往復で、目印行は `PROJECTS loaded pinned=<n> others=<n> alive=<names>` / `PROJECTS failed <reason>`。
+
+### 自走検証（シミュレータ）
+
+```sh
+T=/opt/homebrew/bin/tmux
+python3 -c "import json; d=json.load(open('$HOME/Library/Application Support/polepole/projects.json'))['projects']; print(sum(p.get('isPinned',False) for p in d), sum(not p.get('isPinned',False) for p in d))"   # 期待する pinned / others
+python3 scripts/console-run.py --env MOBILE_IDE_HOST=127.0.0.1 --env MOBILE_IDE_USER=d0ne1s --until "PROJECTS" --keep      # loaded の件数が一致。mise run shot でピン順と色を見る
+$T new-session -d -s form -c ~/form                                                                                          # Air 側でセッションを作る
+python3 scripts/console-run.py --env MOBILE_IDE_HOST=127.0.0.1 --env MOBILE_IDE_USER=d0ne1s --until "PROJECTS"             # alive に form が入る（HyperForm の行に緑の点）
+$T kill-session -t form
+python3 scripts/console-run.py --env MOBILE_IDE_HOST=127.0.0.1 --env MOBILE_IDE_USER=d0ne1s --until "PROJECTS"             # alive から消える（「消えた」の前に「あった」を見ている）
+python3 scripts/console-run.py --env MOBILE_IDE_HOST=127.0.0.1 --env MOBILE_IDE_USER=d0ne1s --env MOBILE_IDE_OPEN_PROJECT=form --until "TERMINAL connected" --keep
+$T display -p -t form '#{pane_current_path}'                                                                                 # /Users/d0ne1s/form（作業ディレクトリが効いている）
+python3 scripts/console-run.py --env MOBILE_IDE_HOST=192.0.2.1 --env MOBILE_IDE_USER=d0ne1s --until "PROJECTS" --timeout 40 # failed 接続がタイムアウトしました（一覧の場所に再試行）
+mise run test                                                                                                                # parse / apply / TmuxSessionName の 7 テスト
+```
+
+- tmux のセッション名は path のディレクトリ名（`[A-Za-z0-9_-]` 以外は `-`）。`.` と `:` は tmux の `-t` で指定できなくなるので必ず置き換える。同名は親ディレクトリ名を後ろに付ける
+- **exec の応答でタブが `_` に化ける**（Citadel の exec 経路。OpenSSH クライアント経由では化けない）。tmux の `-F` はタブ区切りにせず、スペース区切りで名前を最後に置く
+
+### 実機
+
+```sh
+mise run device-install
+python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_HOST=tsubasanoMacBook-Air-4.local --env MOBILE_IDE_USER=d0ne1s --until "PROJECTS"
+```
+
+手で確認する項目: 一覧が PolePole のサイドバーと同じ順・同じ色 / ピン留めの行をタップして tmux に入り、プロンプトの作業ディレクトリがそのプロジェクト / 戻ると行に印 / pull-to-refresh で更新

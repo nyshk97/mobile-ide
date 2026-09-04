@@ -1,41 +1,25 @@
 import SwiftUI
 
-/// 最初の画面。#3 では固定の tmux セッション（mobile-ide）を開く行だけ。プロジェクト一覧は #5。
+/// 最初の画面。PolePole のプロジェクト一覧（ピン留め + その他）と、タップで tmux セッションへ。
 struct HomeView: View {
     enum Route: Hashable {
-        case terminal
+        case terminal(TerminalTarget)
         case settings
     }
 
     @Environment(ConnectionSettings.self) private var settings
     @Environment(SSHIdentity.self) private var identity
+    @Environment(KnownHostStore.self) private var knownHosts
 
+    @State private var model = ProjectListModel()
     /// 自走検証（MOBILE_IDE_TERMINAL_AUTORUN / MOBILE_IDE_CONNECTION_TEST）のときは該当画面を最初から開く
-    @State private var path: [Route] = LaunchOptions.terminalAutorun ? [.terminal]
+    @State private var path: [Route] = LaunchOptions.terminalAutorun ? [.terminal(.mobileIDE)]
         : LaunchOptions.connectionTest ? [.settings] : []
-
-    private let target = TerminalTarget.mobileIDE
+    @State private var didAutoOpen = false
 
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                Section("プロジェクト") {
-                    NavigationLink(value: Route.terminal) {
-                        Label {
-                            VStack(alignment: .leading) {
-                                Text(target.sessionName)
-                                Text(settings.isConfigured
-                                     ? "\(settings.user)@\(settings.host) \(target.workingDirectory)"
-                                     : "接続先が未設定です")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: "terminal")
-                        }
-                    }
-                    .disabled(!settings.isConfigured)
-                }
                 if !settings.isConfigured {
                     Section {
                         NavigationLink(value: Route.settings) {
@@ -43,12 +27,24 @@ struct HomeView: View {
                                 .font(.footnote)
                         }
                     }
+                } else {
+                    statusSection
+                    if !model.pinned.isEmpty {
+                        Section("ピン留め") {
+                            ForEach(model.pinned) { row in rowLink(row) }
+                        }
+                    }
+                    if !model.others.isEmpty {
+                        Section("その他") {
+                            ForEach(model.others) { row in rowLink(row) }
+                        }
+                    }
                 }
             }
             .navigationTitle("Mobile IDE")
             .navigationDestination(for: Route.self) { route in
                 switch route {
-                case .terminal: TerminalScreen(target: target)
+                case .terminal(let target): TerminalScreen(target: target)
                 case .settings: SettingsScreen()
                 }
             }
@@ -58,10 +54,76 @@ struct HomeView: View {
                 }
                 .accessibilityLabel("設定")
             }
+            .refreshable { await refresh() }
         }
-        .task {
+        .task(id: settings.isConfigured) {
             // 自走検証が authorized_keys に登録できるよう、起動時に公開鍵行を stdout に出す
             print("SSH pubkey \(identity.publicKeyLine)")
+            if settings.isConfigured { await refresh() }
+        }
+        .onChange(of: path) { old, new in
+            // 端末から一覧に戻ったらセッションの印を更新する
+            if !old.isEmpty, new.isEmpty, settings.isConfigured {
+                Task { await refresh() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var statusSection: some View {
+        switch model.phase {
+        case .idle, .loading:
+            if model.isEmpty {
+                Section { HStack { ProgressView(); Text("プロジェクトを読み込み中…").foregroundStyle(.secondary) } }
+            }
+        case .failed(let failure):
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(
+                        {
+                            if case .hostKeyMismatch = failure { return "ホスト鍵が変わりました" }
+                            return "一覧を取得できませんでした"
+                        }(),
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .foregroundStyle(.red)
+                    Text(failure.description)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Button("再試行") { Task { await refresh() } }
+                            .buttonStyle(.bordered)
+                        if case .hostKeyMismatch = failure {
+                            NavigationLink("設定で確認", value: Route.settings)
+                                .buttonStyle(.bordered)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        case .loaded:
+            if model.isEmpty {
+                Section {
+                    Text("PolePole にプロジェクトがありません。")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func rowLink(_ row: ProjectListModel.Row) -> some View {
+        NavigationLink(value: Route.terminal(row.target)) {
+            ProjectRowView(row: row, homePath: "/Users/\(settings.user)")
+        }
+    }
+
+    private func refresh() async {
+        await model.refresh(settings: settings, identity: identity, knownHosts: knownHosts)
+        // 自走検証: MOBILE_IDE_OPEN_PROJECT=<sessionName> の行を自動で開く
+        if !didAutoOpen, let name = LaunchOptions.openProject,
+           let row = model.allRows.first(where: { $0.sessionName == name }) {
+            didAutoOpen = true
+            path.append(.terminal(row.target))
         }
     }
 }

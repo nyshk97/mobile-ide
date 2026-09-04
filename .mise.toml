@@ -19,6 +19,13 @@ run = "xcodegen generate"
 description = "iOS Simulator 向けにビルド（-destination 'generic/platform=iOS Simulator' で simulator runtime の版ズレを回避）"
 run = "xcodebuild -skipPackagePluginValidation -project MobileIDE.xcodeproj -scheme MobileIDE -destination 'generic/platform=iOS Simulator' -configuration Debug build"
 
+[tasks.test]
+description = "ユニットテスト（MobileIDETests）を起動中のシミュレータで実行"
+run = """
+UDID=$(xcrun simctl list devices booted -j | python3 -c "import json,sys; d=json.load(sys.stdin); print([x['udid'] for v in d['devices'].values() for x in v if x['state']=='Booted'][0])")
+xcodebuild -skipPackagePluginValidation -project MobileIDE.xcodeproj -scheme MobileIDE -destination "platform=iOS Simulator,id=$UDID" -configuration Debug test
+"""
+
 [tasks.boot]
 description = "iPhone 17 シミュレータを起動"
 run = """
