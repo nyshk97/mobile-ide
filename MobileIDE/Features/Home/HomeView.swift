@@ -58,7 +58,11 @@ struct HomeView: View {
         }
         .task(id: settings.isConfigured) {
             // 自走検証が authorized_keys に登録できるよう、起動時に公開鍵行を stdout に出す
+            settings.saveLaunchOverridesIfRequested()
             print("SSH pubkey \(identity.publicKeyLine)")
+            #if DEBUG
+            print("HOME settings host=\(settings.host) port=\(settings.port) user=\(settings.user) configured=\(settings.isConfigured)")
+            #endif
             if settings.isConfigured { await refresh() }
         }
         .onChange(of: path) { old, new in

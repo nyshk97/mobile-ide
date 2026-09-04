@@ -9,6 +9,7 @@ import Foundation
 /// - `MOBILE_IDE_PRESS_KEYS=esc,tab,ctrl,keyboard`（DEBUG のみ）: 端末接続後、キーボードバーの操作を順に再現する
 /// - `MOBILE_IDE_CONNECTION_TEST=1`: 起動直後に設定画面を開いて接続テストを実行する
 /// - `MOBILE_IDE_HOST` / `MOBILE_IDE_PORT` / `MOBILE_IDE_USER`: 接続設定を上書き（保存はしない）
+/// - `MOBILE_IDE_SAVE_SETTINGS=1`（DEBUG のみ）: 上書き値を UserDefaults にも保存する。手入力と同じ保存経路（setter → didSet）を自走検証・焼き込みに使う
 /// - `MOBILE_IDE_KNOWNHOST=forget` / `=<OpenSSH 公開鍵行>`（DEBUG のみ）: 起動時に接続先のホスト鍵の記録を消す / 差し替える。
 ///   TOFU の不一致経路を外から起こすため（シミュレータの UserDefaults は外から安全に書き換えられない）
 enum LaunchOptions {
@@ -31,6 +32,13 @@ enum LaunchOptions {
     static var hostOverride: String? { env["MOBILE_IDE_HOST"] }
     static var portOverride: Int? { env["MOBILE_IDE_PORT"].flatMap(Int.init) }
     static var userOverride: String? { env["MOBILE_IDE_USER"] }
+    static var saveSettings: Bool {
+        #if DEBUG
+        return env["MOBILE_IDE_SAVE_SETTINGS"] == "1"
+        #else
+        return false
+        #endif
+    }
 
     enum KnownHostOverride {
         case forget

@@ -120,6 +120,12 @@ python3 scripts/console-run.py --env MOBILE_IDE_CONNECTION_TEST=1 --env MOBILE_I
 
 ### 実機
 
+環境変数の上書き（`MOBILE_IDE_HOST` 等）は保存されない。実機で設定を残すには設定画面で手入力するか、DEBUG の `MOBILE_IDE_SAVE_SETTINGS=1` を付けて一度起動して焼き込む（手入力と同じ setter → didSet を通る）:
+
+```sh
+python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_HOST=tsubasanoMacBook-Air-4.local --env MOBILE_IDE_USER=d0ne1s --env MOBILE_IDE_SAVE_SETTINGS=1 --until "PROJECTS"
+```
+
 ```sh
 mise run device-install
 python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --until "SSH pubkey"     # 公開鍵行を拾って authorized_keys に登録

@@ -19,7 +19,7 @@ import sys
 import time
 
 BUNDLE = "com.d0ne1s.mobileide"
-MARKERS = ("SSH ", "TERMINAL ", "PROJECTS ", "KEYS ")
+MARKERS = ("SSH ", "TERMINAL ", "PROJECTS ", "KEYS ", "HOME ")
 
 
 def main(argv):
