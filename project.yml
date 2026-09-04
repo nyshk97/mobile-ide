@@ -6,6 +6,12 @@ options:
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
+packages:
+  # Package.resolved は .xcodeproj 内に生成され gitignore されるので、再現性は exactVersion で担保する
+  Citadel:
+    url: https://github.com/orlandos-nl/Citadel
+    exactVersion: 0.12.1
+
 settings:
   base:
     SWIFT_VERSION: "5.10"
@@ -37,6 +43,8 @@ targets:
       - path: MobileIDE
         excludes:
           - "**/.DS_Store"
+    dependencies:
+      - package: Citadel
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.d0ne1s.mobileide
@@ -53,5 +61,7 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_CFBundleDisplayName: "Mobile IDE"
+        # 開発中は同じ Wi-Fi 上の Mac (.local) に SSH するため、ローカルネットワークの許可が要る
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "同じネットワーク上の Mac に SSH で接続するために使います"
         SWIFT_EMIT_LOC_STRINGS: YES
         GENERATE_INFOPLIST_FILE: YES

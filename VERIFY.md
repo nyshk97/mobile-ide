@@ -81,3 +81,42 @@ ssh -o BatchMode=yes -tt localhost 'zsh -ic "which tmux"'   # /opt/homebrew/bin/
 - 2 行目が `Permission denied (publickey)` で落ちること（パスワード認証が閉じている証明）
 - 3 行目で tmux のパスが出ること。exec チャネル（1 行目）は `.zshrc` を読まないので PATH 前置きが必須。PATH 無しだと `command not found: tmux` になる（2026-09-04 に Air で実測）
 - iPhone からは同じ Wi-Fi 上で `tsubasanoMacBook-Air-4.local` に接続する（ホスト名は `scutil --get LocalHostName`）
+
+## SSH スパイク（#2）
+
+Home 右上の「SSH スパイク」（DEBUG ビルドのみ）から、アプリ内生成の ed25519 鍵で 1 接続の exec → PTY → SFTP を試す画面。
+`scripts/spike-run.py` がアプリを `--console` 付きで起動し、stdout の `SPIKE ...` 行を集める。
+
+### シミュレータ（自走）
+
+```sh
+mise run boot && mise run install
+python3 scripts/spike-run.py                                   # 起動して公開鍵行だけ拾う
+python3 scripts/spike-run.py --autorun 127.0.0.1 d0ne1s        # 自動で接続テストまで実行
+```
+
+1. 1 回目の出力 `SPIKE pubkey ssh-ed25519 ...` を `~/.ssh/authorized_keys` に追記する（2 回起動して同じ鍵が出ること = UserDefaults からの復元）。形式は `ssh-keygen -l -f <公開鍵を書いたファイル>` が `256 SHA256:... (ED25519)` を返せば正しい
+2. 登録前に `--autorun` すると `SPIKE connect NG allAuthenticationOptionsFailed` になること（失敗経路の確認）
+3. 登録後の `--autorun` で次の 5 行が出ること
+
+```
+SPIKE connect OK d0ne1s@127.0.0.1:22 publickey
+SPIKE exec OK hello
+SPIKE pty OK tmux 3.7c
+SPIKE sftp OK /Users/d0ne1s
+SPIKE close OK
+```
+
+`--keep` を付けるとアプリを終了しないので、続けて `mise run shot` で結果欄のスクリーンショットが撮れる。
+
+### 実機
+
+```sh
+mise run device-install
+python3 scripts/spike-run.py --device "$(bash scripts/device-id.sh)"                                              # 公開鍵行を拾う
+python3 scripts/spike-run.py --device "$(bash scripts/device-id.sh)" --autorun tsubasanoMacBook-Air-4.local d0ne1s
+```
+
+- 実機の鍵はシミュレータと別なので、実機の公開鍵行も `authorized_keys` に追記する
+- **初回接続で iPhone にローカルネットワークの許可ダイアログが出る。許可するまで `connect NG ... No route to host (errno: 65)` になる**（`.local` の名前解決は通っていて IP まで出るので、ネットワーク障害と見誤りやすい）。出ていなければ 設定 → プライバシーとセキュリティ → ローカルネットワーク で Mobile IDE を ON にする
+- 環境変数は `DEVICECTL_CHILD_` プレフィックスで渡る（シミュレータは `SIMCTL_CHILD_`）。スクリプトが面倒を見る
