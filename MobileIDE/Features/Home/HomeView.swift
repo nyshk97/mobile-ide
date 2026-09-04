@@ -1,17 +1,20 @@
 import SwiftUI
 
-/// 最初の画面。#3 では固定の tmux セッション（mobile-ide）を開くボタンだけ。プロジェクト一覧は #5。
+/// 最初の画面。#3 では固定の tmux セッション（mobile-ide）を開く行だけ。プロジェクト一覧は #5。
 struct HomeView: View {
     enum Route: Hashable {
         case terminal
-        case spike
+        case settings
     }
 
-    /// 自走検証（MOBILE_IDE_TERMINAL_AUTORUN / MOBILE_IDE_SPIKE_AUTORUN）のときは該当画面を最初から開く
-    @State private var path: [Route] = TerminalAutorun.isRequested ? [.terminal]
-        : SpikeAutorun.isRequested ? [.spike] : []
+    @Environment(ConnectionSettings.self) private var settings
+    @Environment(SSHIdentity.self) private var identity
 
-    private let target = TerminalTarget.current()
+    /// 自走検証（MOBILE_IDE_TERMINAL_AUTORUN / MOBILE_IDE_CONNECTION_TEST）のときは該当画面を最初から開く
+    @State private var path: [Route] = LaunchOptions.terminalAutorun ? [.terminal]
+        : LaunchOptions.connectionTest ? [.settings] : []
+
+    private let target = TerminalTarget.mobileIDE
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -21,7 +24,9 @@ struct HomeView: View {
                         Label {
                             VStack(alignment: .leading) {
                                 Text(target.sessionName)
-                                Text("\(target.user)@\(target.host) \(target.workingDirectory)")
+                                Text(settings.isConfigured
+                                     ? "\(settings.user)@\(settings.host) \(target.workingDirectory)"
+                                     : "接続先が未設定です")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -29,13 +34,14 @@ struct HomeView: View {
                             Image(systemName: "terminal")
                         }
                     }
-                    .disabled(target.user.isEmpty)
+                    .disabled(!settings.isConfigured)
                 }
-                if target.user.isEmpty {
+                if !settings.isConfigured {
                     Section {
-                        Text("接続先が未設定です。右上の「SSH スパイク」でホスト名・ユーザー名を入れ、公開鍵を登録してください。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        NavigationLink(value: Route.settings) {
+                            Label("右上の歯車から接続先を設定し、公開鍵を Mac に登録してください", systemImage: "gear")
+                                .font(.footnote)
+                        }
                     }
                 }
             }
@@ -43,20 +49,26 @@ struct HomeView: View {
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .terminal: TerminalScreen(target: target)
-                case .spike: SSHSpikeView()
+                case .settings: SettingsScreen()
                 }
             }
-            #if DEBUG
             .toolbar {
-                // #2 のスパイク画面への導線。#4 で接続設定画面ができたら消す
-                NavigationLink("SSH スパイク", value: Route.spike)
+                NavigationLink(value: Route.settings) {
+                    Image(systemName: "gear")
+                }
+                .accessibilityLabel("設定")
             }
-            #endif
         }
-        .task { SpikeAutorun.printPublicKey() }
+        .task {
+            // 自走検証が authorized_keys に登録できるよう、起動時に公開鍵行を stdout に出す
+            print("SSH pubkey \(identity.publicKeyLine)")
+        }
     }
 }
 
 #Preview {
     HomeView()
+        .environment(ConnectionSettings())
+        .environment(SSHIdentity(store: InMemorySSHKeyStore()))
+        .environment(KnownHostStore())
 }

@@ -82,49 +82,58 @@ ssh -o BatchMode=yes -tt localhost 'zsh -ic "which tmux"'   # /opt/homebrew/bin/
 - 3 行目で tmux のパスが出ること。exec チャネル（1 行目）は `.zshrc` を読まないので PATH 前置きが必須。PATH 無しだと `command not found: tmux` になる（2026-09-04 に Air で実測）
 - iPhone からは同じ Wi-Fi 上で `tsubasanoMacBook-Air-4.local` に接続する（ホスト名は `scutil --get LocalHostName`）
 
-## SSH スパイク（#2）
+## 接続設定と鍵（#4）
 
-Home 右上の「SSH スパイク」（DEBUG ビルドのみ）から、アプリ内生成の ed25519 鍵で 1 接続の exec → PTY → SFTP を試す画面。
-`scripts/console-run.py` がアプリを `--console` 付きで起動し、stdout の `SPIKE ...` 行を集める。
+歯車 → 設定。接続先（ホスト名・ポート・ユーザー名）は UserDefaults の `connection.*`、秘密鍵は Keychain（この端末限定）、ホスト鍵は TOFU で UserDefaults の `knownhosts.<host>:<port>` に記録する。
 
-### シミュレータ（自走）
+### authorized_keys への登録
+
+1. 設定画面の「公開鍵をコピー」（または起動時 stdout の `SSH pubkey ...` 行）で `ssh-ed25519 AAAA... mobile-ide` を取る
+2. ホスト側の `~/.ssh/authorized_keys` に 1 行追記する（Air では `~/Dropbox/dotfiles/.ssh/authorized_keys`、権限 600）
+3. 設定画面の「接続してみる」が「接続できました」になる
+
+シミュレータの鍵と実機の鍵は別なので、それぞれ登録する。`ssh-keygen -l -f <公開鍵行を書いたファイル>` が `256 SHA256:... (ED25519)` を返せば形式は正しい。
+
+### 自走検証（シミュレータ）
+
+`scripts/console-run.py` の `--env` で接続先を上書きして起動する（上書きは保存されないので毎回渡す）。目印行は `SSH pubkey` / `SSH hostkey trusted|ok|mismatch` / `SSH test OK|NG`。
 
 ```sh
 mise run boot && mise run install
-python3 scripts/console-run.py                                   # 起動して公開鍵行だけ拾う
-python3 scripts/console-run.py --env MOBILE_IDE_SPIKE_AUTORUN=1 --env MOBILE_IDE_SPIKE_HOST=127.0.0.1 --env MOBILE_IDE_SPIKE_USER=d0ne1s --until "SPIKE done"        # 自動で接続テストまで実行
+python3 scripts/console-run.py --until "SSH pubkey"                                  # 公開鍵行。再起動しても同じ鍵が出る（Keychain）
+python3 scripts/console-run.py --env MOBILE_IDE_CONNECTION_TEST=1 --env MOBILE_IDE_HOST=127.0.0.1 --env MOBILE_IDE_USER=d0ne1s \
+    --env MOBILE_IDE_KNOWNHOST=forget --until "SSH test"                             # → hostkey trusted → test OK
+python3 scripts/console-run.py --env MOBILE_IDE_CONNECTION_TEST=1 --env MOBILE_IDE_HOST=127.0.0.1 --env MOBILE_IDE_USER=d0ne1s \
+    --until "SSH test"                                                               # → hostkey ok → test OK
+python3 scripts/console-run.py --env MOBILE_IDE_CONNECTION_TEST=1 --env MOBILE_IDE_HOST=127.0.0.1 --env MOBILE_IDE_USER=d0ne1s \
+    --env "MOBILE_IDE_KNOWNHOST=ssh-ed25519 <アプリ自身の公開鍵の base64>" --until "SSH test" --keep   # → hostkey mismatch → test NG hostKeyMismatch（1 秒以内）
+mise run shot                                                                        # アラートに新旧の指紋と「新しい鍵を信用」
+python3 scripts/console-run.py --env MOBILE_IDE_CONNECTION_TEST=1 --env MOBILE_IDE_HOST=192.0.2.1 --env MOBILE_IDE_USER=d0ne1s \
+    --until "SSH test" --timeout 40                                                  # → 20 秒で「接続がタイムアウトしました」
 ```
 
-1. 1 回目の出力 `SPIKE pubkey ssh-ed25519 ...` を `~/.ssh/authorized_keys` に追記する（2 回起動して同じ鍵が出ること = UserDefaults からの復元）。形式は `ssh-keygen -l -f <公開鍵を書いたファイル>` が `256 SHA256:... (ED25519)` を返せば正しい
-2. 登録前に `--until "SPIKE done"` 付きの実行すると `SPIKE connect NG allAuthenticationOptionsFailed` になること（失敗経路の確認）
-3. 登録後の `--until "SPIKE done"` 付きの実行で次の 5 行が出ること
-
-```
-SPIKE connect OK d0ne1s@127.0.0.1:22 publickey
-SPIKE exec OK hello
-SPIKE pty OK tmux 3.7c
-SPIKE sftp OK /Users/d0ne1s
-SPIKE close OK
-```
-
-`--keep` を付けるとアプリを終了しないので、続けて `mise run shot` で結果欄のスクリーンショットが撮れる。
+- `trusted` / `ok` の指紋が `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` と一致すること
+- `MOBILE_IDE_KNOWNHOST`（DEBUG のみ）は起動時にホスト鍵の記録を消す / 差し替える。**シミュレータの UserDefaults を外から書き換えるのは不安定**（`plutil` で plist を直接編集しても cfprefsd のキャッシュに負ける。`simctl spawn booted defaults write` も再インストール後はアプリのコンテナと別の場所に書かれて効かない）。アプリ自身に操作させる
+- 不一致のあと「新しい鍵を信用」で復帰する経路はボタン操作なので実機で手で確認する
+- 鍵が Keychain にあること: 旧形式（UserDefaults の `dev.ssh.ed25519.seed`）からの移行は 2026-09-04 にシミュレータ・実機で 1 回ずつ通した（更新前後で同じ公開鍵、`plutil -p` に seed が残らない）。再現するには旧ビルドを入れてから更新する
+- アンインストール（`xcrun simctl uninstall booted com.d0ne1s.mobileide`）で Keychain の鍵も消え、次の起動で新しい鍵になる
 
 ### 実機
 
 ```sh
 mise run device-install
-python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)"                                              # 公開鍵行を拾う
-python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_SPIKE_AUTORUN=1 --env MOBILE_IDE_SPIKE_HOST=tsubasanoMacBook-Air-4.local --env MOBILE_IDE_SPIKE_USER=d0ne1s --until "SPIKE done"
+python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --until "SSH pubkey"     # 公開鍵行を拾って authorized_keys に登録
+python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_CONNECTION_TEST=1 \
+    --env MOBILE_IDE_HOST=tsubasanoMacBook-Air-4.local --env MOBILE_IDE_USER=d0ne1s --until "SSH test"
 ```
 
-- 実機の鍵はシミュレータと別なので、実機の公開鍵行も `authorized_keys` に追記する
-- **初回接続で iPhone にローカルネットワークの許可ダイアログが出る。許可するまで `connect NG ... No route to host (errno: 65)` になる**（`.local` の名前解決は通っていて IP まで出るので、ネットワーク障害と見誤りやすい）。出ていなければ 設定 → プライバシーとセキュリティ → ローカルネットワーク で Mobile IDE を ON にする
-- 環境変数は `DEVICECTL_CHILD_` プレフィックスで渡る（シミュレータは `SIMCTL_CHILD_`）。スクリプトが面倒を見る
+- **初回接続で iPhone にローカルネットワークの許可ダイアログが出る。許可するまで `No route to host (errno: 65)` になる**（`.local` の名前解決は通っていて IP まで出るので、ネットワーク障害と見誤りやすい）。出ていなければ 設定 → プライバシーとセキュリティ → ローカルネットワーク で Mobile IDE を ON にする
+- 手で確認する項目: 設定画面のホスト鍵の指紋が Mac の `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` と一致する / 「鍵を作り直す」→ 新しい公開鍵を登録 → 接続テスト OK / 「このホスト鍵を忘れる」→ 接続テストで再び記録される
 
 ## 端末（#3）
 
 Home の「mobile-ide」行から、Air の tmux セッション `mobile-ide`（作業ディレクトリ `~/mobile-ide`）に SwiftTerm で入る。
-接続先ホスト・ユーザーはスパイク画面の保存値（`spike.host` / `spike.user`）を流用する。
+接続先は設定画面（歯車）の値。自走検証では `MOBILE_IDE_HOST` / `MOBILE_IDE_USER` で上書きする（保存はされない）。
 
 ### 観測点
 
@@ -146,11 +155,11 @@ $T detach-client -s mobile-ide                     # アプリが「切断され
 ```sh
 mise run boot && mise run install
 /opt/homebrew/bin/tmux kill-session -t mobile-ide 2>/dev/null   # 無い状態から始める
-python3 scripts/console-run.py --env MOBILE_IDE_TERMINAL_AUTORUN=1 --until "TERMINAL resized" --keep
-python3 scripts/verify-terminal.py                              # 6 項目を一括検証（SUMMARY: 6 / 6 passed）
+python3 scripts/console-run.py --env MOBILE_IDE_TERMINAL_AUTORUN=1 --env MOBILE_IDE_HOST=127.0.0.1 --env MOBILE_IDE_USER=d0ne1s --until "TERMINAL resized" --keep
+python3 scripts/verify-terminal.py                              # 接続先は MOBILE_IDE_HOST / MOBILE_IDE_USER（既定 127.0.0.1 / d0ne1s）                              # 6 項目を一括検証（SUMMARY: 6 / 6 passed）
 ```
 
-- 1 つ目で `size 54x48` → `size 54x25`（キーボード表示で縮む）→ `connected ... 54x48` → `resized 54x25` の順に出ること。`list-clients` の値が最後の size と一致すること（接続待ちの間に変わったサイズを接続完了時に送っている証明）
+- 1 つ目で `size 54x48` → `size 54x25`（キーボード表示で縮む）→ `hostkey ok` → `connected ... 54x48` → `resized 54x25` の順に出ること。`list-clients` の値が最後の size と一致すること（接続待ちの間に変わったサイズを接続完了時に送っている証明）
 - `.zshrc` の読み込みで `connected` から tmux セッションが現れるまで数秒かかる。`connected` 直後に `list-sessions` すると「no server running」になるので、`has-session` が通るまで待つ（verify-terminal.py はそうしている）
 - 別プロセスで attach → detach を試すときは、**前のアプリ実体の古いクライアントを掴まない**よう `#{client_created}` が起動時刻以降のクライアントを待つ（古いクライアントに detach を撃つと新しい方が残って偽 fail になる。2026-09-04 に実例）
 - `MOBILE_IDE_TERMINAL_TYPE='echo INPUT_OK\n'` を付けて起動すると接続 1 秒後にその文字列を送る（アプリ → PTY → tmux の経路。SwiftTerm のキー → `send` デリゲートは含まない）
@@ -161,7 +170,7 @@ python3 scripts/verify-terminal.py                              # 6 項目を一
 ```sh
 mise run device-install
 python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_TERMINAL_AUTORUN=1 \
-    --env MOBILE_IDE_SPIKE_HOST=tsubasanoMacBook-Air-4.local --env MOBILE_IDE_SPIKE_USER=d0ne1s --until "TERMINAL connected" --keep
+    --env MOBILE_IDE_HOST=tsubasanoMacBook-Air-4.local --env MOBILE_IDE_USER=d0ne1s --until "TERMINAL connected" --keep
 /opt/homebrew/bin/tmux list-clients -t mobile-ide -F '#{client_width}x#{client_height} created=#{client_created}'
 ```
 

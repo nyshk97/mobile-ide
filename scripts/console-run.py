@@ -1,4 +1,4 @@
-"""アプリを --console 付きで起動し、stdout の目印行（SPIKE / TERMINAL で始まる行）を集める自走ドライバ。
+"""アプリを --console 付きで起動し、stdout の目印行（SSH / TERMINAL で始まる行）を集める自走ドライバ。
 
 使い方:
   python3 scripts/console-run.py [--device ID] [--env KEY=VALUE ...] [--until MARKER] [--timeout SEC] [--keep]
@@ -7,9 +7,9 @@
   --until の目印行が出たら終了（既定: 最初の目印行）。--keep でアプリを終了せず残す（スクリーンショット用）。
 
 例:
-  python3 scripts/console-run.py                                             # 公開鍵行を拾う
-  python3 scripts/console-run.py --env MOBILE_IDE_SPIKE_AUTORUN=1 --env MOBILE_IDE_SPIKE_HOST=127.0.0.1 \\
-      --env MOBILE_IDE_SPIKE_USER=d0ne1s --until "SPIKE done"
+  python3 scripts/console-run.py                                             # 公開鍵行（SSH pubkey ...）を拾う
+  python3 scripts/console-run.py --env MOBILE_IDE_CONNECTION_TEST=1 --env MOBILE_IDE_HOST=127.0.0.1 \\
+      --env MOBILE_IDE_USER=d0ne1s --until "SSH test"                       # 設定画面の接続テストを自動実行
   python3 scripts/console-run.py --env MOBILE_IDE_TERMINAL_AUTORUN=1 --until "TERMINAL connected" --keep
 """
 import os
@@ -19,7 +19,7 @@ import sys
 import time
 
 BUNDLE = "com.d0ne1s.mobileide"
-MARKERS = ("SPIKE ", "TERMINAL ")
+MARKERS = ("SSH ", "TERMINAL ")
 
 
 def main(argv):
@@ -56,22 +56,33 @@ def main(argv):
     else:
         subprocess.run(["xcrun", "simctl", "terminate", "booted", BUNDLE], capture_output=True)
         cmd = ["xcrun", "simctl", "launch", "--console", "booted", BUNDLE]
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True)
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
 
+    # select + readline は「2 行が同時に届くと 2 行目が Python 側のバッファに残り select が反応しない」罠があるので、
+    # 生の fd を os.read して自分で行に切る
+    fd = p.stdout.fileno()
     deadline = time.time() + timeout
-    while time.time() < deadline:
-        r, _, _ = select.select([p.stdout], [], [], 0.5)
+    buf = b""
+    done = False
+    while not done and time.time() < deadline:
+        r, _, _ = select.select([fd], [], [], 0.5)
         if not r:
             continue
-        line = p.stdout.readline()
-        if not line:
+        chunk = os.read(fd, 65536)
+        if not chunk:
             break
-        if line.startswith(MARKERS):
-            print(line, end="", flush=True)
-            if until is None or line.startswith(until):
-                break
+        buf += chunk
+        while b"\n" in buf:
+            raw, buf = buf.split(b"\n", 1)
+            line = raw.decode("utf-8", "replace") + "\n"
+            if line.startswith(MARKERS):
+                print(line, end="", flush=True)
+                if until is None or line.startswith(until):
+                    done = True
+                    break
     else:
-        print(f"TIMEOUT after {timeout}s", flush=True)
+        if not done:
+            print(f"TIMEOUT after {timeout}s", flush=True)
 
     if not keep and not device:
         subprocess.run(["xcrun", "simctl", "terminate", "booted", BUNDLE], capture_output=True)

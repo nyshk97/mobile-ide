@@ -1,7 +1,8 @@
 """端末（#3）のシミュレータ自走検証。リポジトリルートで実行する。
 
 前提: `mise run boot && mise run install` 済み、Air 側で tmux セッション `mobile-ide` にアプリが attach 中
-（`python3 scripts/console-run.py --env MOBILE_IDE_TERMINAL_AUTORUN=1 --until "TERMINAL connected" --keep`）。
+（`python3 scripts/console-run.py --env MOBILE_IDE_TERMINAL_AUTORUN=1 --env MOBILE_IDE_HOST=127.0.0.1 --env MOBILE_IDE_USER=d0ne1s --until "TERMINAL connected" --keep`）。
+接続先は環境変数 MOBILE_IDE_HOST / MOBILE_IDE_USER（既定 127.0.0.1 / d0ne1s）。
 tmux サーバーはこの Mac（= 開発中のホスト）上の同じユーザーのものを直接見る。
 スクリーンショットは /tmp/mobile-ide-term-*.png に出る。
 
@@ -11,11 +12,15 @@ tmux サーバーはこの Mac（= 開発中のホスト）上の同じユーザ
 import subprocess, time, sys, os
 S = "/tmp"
 T = "/opt/homebrew/bin/tmux"
+# 接続先。環境変数の上書きは保存されないので、再起動するたびに渡す
+HOST = os.environ.get("MOBILE_IDE_HOST", "127.0.0.1")
+USER = os.environ.get("MOBILE_IDE_USER", "d0ne1s")
+CONN_ENV = ["--env", f"MOBILE_IDE_HOST={HOST}", "--env", f"MOBILE_IDE_USER={USER}"]
 def tmux(*a): return subprocess.run([T, *a], capture_output=True, text=True).stdout.strip()
 def shot(name):
     subprocess.run(["xcrun", "simctl", "io", "booted", "screenshot", f"{S}/mobile-ide-{name}"], capture_output=True)
 def console(env, until, timeout=60):
-    cmd = ["python3", "scripts/console-run.py", "--until", until, "--timeout", str(timeout), "--keep"]
+    cmd = ["python3", "scripts/console-run.py", "--until", until, "--timeout", str(timeout), "--keep"] + CONN_ENV
     for k, v in env.items(): cmd += ["--env", f"{k}={v}"]
     return subprocess.run(cmd, capture_output=True, text=True).stdout
 def wait(pred, sec=30):
@@ -40,7 +45,7 @@ wait(lambda: "mobile-ide on" in tmux("capture-pane", "-p", "-t", "mobile-ide").s
 # 2. 切断: 別プロセスで console を張り直し、tmux 側から detach → アプリが disconnected を出すか
 launched_at = int(time.time())
 p = subprocess.Popen(["python3", "scripts/console-run.py", "--env", "MOBILE_IDE_TERMINAL_AUTORUN=1",
-                      "--until", "TERMINAL disconnected", "--timeout", "60", "--keep"],
+                      "--until", "TERMINAL disconnected", "--timeout", "60", "--keep"] + CONN_ENV,
                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 # 起動後に作られたクライアント（古い実体の残骸でない）が付くまで待つ
 def fresh_client():

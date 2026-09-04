@@ -4,6 +4,10 @@ import SwiftUI
 struct TerminalScreen: View {
     let target: TerminalTarget
 
+    @Environment(ConnectionSettings.self) private var settings
+    @Environment(SSHIdentity.self) private var identity
+    @Environment(KnownHostStore.self) private var knownHosts
+
     @State private var session = PTYSession()
     @State private var surface: any TerminalSurface = SwiftTermSurface()
     @State private var wired = false
@@ -16,7 +20,7 @@ struct TerminalScreen: View {
             .onAppear(perform: wireUp)
             .onDisappear { session.close() }
             .onChange(of: session.state) { _, newState in
-                guard newState == .running, let text = TerminalAutorun.textToType else { return }
+                guard newState == .running, let text = LaunchOptions.terminalTextToType else { return }
                 Task {
                     try? await Task.sleep(for: .seconds(1))
                     session.send(Data(text.utf8))
@@ -33,25 +37,48 @@ struct TerminalScreen: View {
                 ProgressView("接続中…")
             }
         case .disconnected(let reason):
-            ZStack {
-                Color(.systemBackground).opacity(0.85)
-                VStack(spacing: 12) {
-                    Image(systemName: "bolt.slash")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary)
-                    Text("切断されました")
-                        .font(.headline)
-                    Text(reason)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                    Button("再接続") { start() }
-                        .buttonStyle(.borderedProminent)
+            stopped(title: "切断されました", detail: reason) {
+                Button("再接続") { start() }
+                    .buttonStyle(.borderedProminent)
+            }
+        case .failed(.hostKeyMismatch(let expected, let actual, let actualLine)):
+            stopped(title: "ホスト鍵が変わりました", detail: "記録: \(expected)\n今回: \(actual)") {
+                Button("新しい鍵を信用して再接続") {
+                    knownHosts.set(actualLine, host: settings.host, port: settings.port)
+                    start()
                 }
-                .padding()
+                .buttonStyle(.borderedProminent)
+                Text("Mac を入れ替えた・再インストールした覚えがなければ接続しないでください")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        case .failed(let failure):
+            stopped(title: "接続できませんでした", detail: failure.description) {
+                Button("再試行") { start() }
+                    .buttonStyle(.borderedProminent)
             }
         case .running:
             EmptyView()
+        }
+    }
+
+    private func stopped<Actions: View>(title: String, detail: String, @ViewBuilder actions: () -> Actions) -> some View {
+        ZStack {
+            Color(.systemBackground).opacity(0.85)
+            VStack(spacing: 12) {
+                Image(systemName: "bolt.slash")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+                Text(title)
+                    .font(.headline)
+                Text(detail)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                actions()
+            }
+            .padding()
         }
     }
 
@@ -77,6 +104,9 @@ struct TerminalScreen: View {
 
     private func start(size: TerminalSize? = nil) {
         guard let size = size ?? surface.currentSize else { return }
-        session.start(target: target, size: size, privateKey: DevKeyStore.loadOrCreate())
+        let settings = settings, identity = identity, knownHosts = knownHosts
+        session.start(target: target, size: size) {
+            try await SSHConnection.connect(settings: settings, identity: identity, knownHosts: knownHosts)
+        }
     }
 }

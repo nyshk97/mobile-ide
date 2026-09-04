@@ -1,5 +1,4 @@
 import Citadel
-import Crypto
 import Foundation
 import NIOCore
 import NIOSSH
@@ -17,7 +16,10 @@ final class PTYSession {
         case idle
         case connecting
         case running
+        /// 接続後に切れた（シェルの exit、close など）
         case disconnected(String)
+        /// 接続に失敗した（ホスト鍵不一致は画面で特別扱い）
+        case failed(ConnectFailure)
     }
 
     private(set) var state: State = .idle
@@ -33,21 +35,22 @@ final class PTYSession {
     /// write / changeSize の順序を守るための直列化（Task を素直に並べるとキー入力が前後しうる）
     private var pendingWrite: Task<Void, Never>?
 
-    func start(target: TerminalTarget, size: TerminalSize, privateKey: Curve25519.Signing.PrivateKey) {
+    /// - Parameters:
+    ///   - connect: `SSHConnection.connect` を包んだクロージャ。失敗は `ConnectFailure` で投げる
+    func start(
+        target: TerminalTarget,
+        size: TerminalSize,
+        connect: @escaping @MainActor () async throws -> SSHClient
+    ) {
         switch state {
         case .connecting, .running: return
-        case .idle, .disconnected: break
+        case .idle, .disconnected, .failed: break
         }
         state = .connecting
         latestSize = size
         task = Task { [weak self] in
             do {
-                let settings = SSHClientSettings(
-                    host: target.host,
-                    authenticationMethod: { .ed25519(username: target.user, privateKey: privateKey) },
-                    hostKeyValidator: .acceptAnything()  // known_hosts 相当の固定は #4
-                )
-                let client = try await SSHClient.connect(to: settings)
+                let client = try await connect()
                 self?.client = client
                 let request = SSHChannelRequestEvent.PseudoTerminalRequest(
                     wantReply: true,
@@ -62,7 +65,7 @@ final class PTYSession {
                     guard let self else { return }
                     self.writer = outbound
                     self.state = .running
-                    print("TERMINAL connected \(target.user)@\(target.host) \(size.cols)x\(size.rows)")
+                    print("TERMINAL connected \(target.sessionName) \(size.cols)x\(size.rows)")
                     fflush(stdout)
                     if let latest = self.latestSize, latest != size {
                         // 接続待ちの間にキーボード表示などでサイズが変わっていた
@@ -78,6 +81,8 @@ final class PTYSession {
                     }
                 }
                 self?.finish("shell exited")
+            } catch let failure as ConnectFailure {
+                self?.fail(failure)
             } catch is CancellationError {
                 self?.finish("closed")
             } catch let failure as SSHClient.CommandFailed {
@@ -121,6 +126,13 @@ final class PTYSession {
             await previous?.value
             do { try await operation() } catch { print("TERMINAL write failed \(error)") }
         }
+    }
+
+    private func fail(_ failure: ConnectFailure) {
+        writer = nil
+        state = .failed(failure)
+        print("TERMINAL failed \(failure)".replacingOccurrences(of: "\n", with: " "))
+        fflush(stdout)
     }
 
     private func finish(_ reason: String) {
