@@ -51,3 +51,33 @@ mise run device-run         # build → devicectl install → launch
 
 - ホーム画面に「Mobile IDE」の名前でアイコンが並ぶこと
 - 起動してプレースホルダ画面が表示されること
+
+## ホスト（開発中は MacBook Air、本番は Mac mini）
+
+アプリから見たホストは sshd + tmux + PolePole の `projects.json` があるだけの SSH サーバー。Mac mini が届くまでは MacBook Air をホストにする（#1）。
+
+### 準備（1 回だけ・sudo が要る）
+
+```sh
+sudo systemsetup -setremotelogin on
+printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' | sudo tee /etc/ssh/sshd_config.d/00-mobile-ide.conf
+```
+
+`00-` で置くのは、後から読まれた設定に負けないため（sshd は先に読まれた値が勝つ）。macOS の sshd は接続ごとに launchd が起動するので再起動は不要。Claude Code の Bash からは sudo が通らないので Terminal.app で実行する。
+
+- System Settings → 一般 → 共有 → リモートログイン の (i) で「リモートユーザーにフルディスクアクセスを許可」を ON にする（`~/.ssh` と dotfiles が `~/Library/CloudStorage/` 配下にあり、sshd から読むのに必要）
+- tmux は Brewfile 経由で入れる（`brew 'tmux'`）
+- 手元の公開鍵を `~/.ssh/authorized_keys` に入れておく（Air では `id_rsa.pub` を登録済み）
+
+### 確認
+
+```sh
+ssh -o BatchMode=yes localhost 'PATH=/opt/homebrew/bin:$PATH; tmux -V && tmux new-session -d -s verify -c /tmp && tmux list-sessions && tmux kill-session -t verify'
+ssh -o BatchMode=yes -o PreferredAuthentications=password -o PubkeyAuthentication=no localhost true   # Permission denied になること
+ssh -o BatchMode=yes -tt localhost 'zsh -ic "which tmux"'   # /opt/homebrew/bin/tmux が出ること（.zshrc を sshd 経由で読めている証明）
+```
+
+- 1 行目が `tmux 3.x` と `verify: 1 windows ...` を出し、対話なしで通ること（BatchMode なのでパスワードを聞かれると失敗する）
+- 2 行目が `Permission denied (publickey)` で落ちること（パスワード認証が閉じている証明）
+- 3 行目で tmux のパスが出ること。exec チャネル（1 行目）は `.zshrc` を読まないので PATH 前置きが必須。PATH 無しだと `command not found: tmux` になる（2026-09-04 に Air で実測）
+- iPhone からは同じ Wi-Fi 上で `tsubasanoMacBook-Air-4.local` に接続する（ホスト名は `scutil --get LocalHostName`）
