@@ -69,3 +69,15 @@ iPhone アプリ                          Mac mini
 - 複数ホスト、設定同期、テーマ
 - Mac mini 側の常駐デーモン（SSH ポーリングで足りている間は不要）
 
+## 開発
+
+XcodeGen + mise。`.xcodeproj` は生成物（gitignore 対象）。
+
+```sh
+mise run gen          # project.yml → MobileIDE.xcodeproj
+mise run run          # シミュレータで build → install → launch
+mise run device-run   # USB 接続した iPhone に build → install → launch
+mise run icon         # アプリアイコンを再生成
+```
+
+詳細は [VERIFY.md](VERIFY.md)。
