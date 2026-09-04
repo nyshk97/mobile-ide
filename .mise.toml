@@ -12,9 +12,12 @@ run = "bash scripts/generate-app-icon.sh"
 description = "project.yml から Xcode プロジェクトを再生成"
 run = "xcodegen generate"
 
+# SwiftTerm がビルドツールプラグインを使うので、全 xcodebuild に -skipPackagePluginValidation を付ける（無いと plugin validation で止まる）。
+# シミュレータは -sdk iphonesimulator だとプラグインのホストツール（SwiftTermBuildInfoGenerator）が組まれず
+# 「Build input file cannot be found」になるので -destination 'generic/platform=iOS Simulator' を使う
 [tasks.build]
-description = "iOS Simulator 向けにビルド（-sdk iphonesimulator で simulator runtime の版ズレを回避）"
-run = "xcodebuild -project MobileIDE.xcodeproj -scheme MobileIDE -sdk iphonesimulator -configuration Debug build"
+description = "iOS Simulator 向けにビルド（-destination 'generic/platform=iOS Simulator' で simulator runtime の版ズレを回避）"
+run = "xcodebuild -skipPackagePluginValidation -project MobileIDE.xcodeproj -scheme MobileIDE -destination 'generic/platform=iOS Simulator' -configuration Debug build"
 
 [tasks.boot]
 description = "iPhone 17 シミュレータを起動"
@@ -27,7 +30,7 @@ open -a Simulator
 description = "起動中のシミュレータにアプリをインストール（build 済み前提。depends は並列実行なので直列に繋ぐ）"
 depends = ["build"]
 run = """
-APP_PATH=$(xcodebuild -project MobileIDE.xcodeproj -scheme MobileIDE -sdk iphonesimulator -configuration Debug -showBuildSettings 2>/dev/null | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $2; exit}')
+APP_PATH=$(xcodebuild -skipPackagePluginValidation -project MobileIDE.xcodeproj -scheme MobileIDE -destination 'generic/platform=iOS Simulator' -configuration Debug -showBuildSettings 2>/dev/null | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $2; exit}')
 xcrun simctl install booted "$APP_PATH/MobileIDE.app"
 """
 
@@ -49,7 +52,7 @@ description = "接続中の iPhone 向けにビルド（自動署名。provision
 run = """
 set -e
 DEVICE=$(bash scripts/device-id.sh)
-xcodebuild -project MobileIDE.xcodeproj -scheme MobileIDE -destination "id=$DEVICE" -configuration Debug -allowProvisioningUpdates build
+xcodebuild -skipPackagePluginValidation -project MobileIDE.xcodeproj -scheme MobileIDE -destination "id=$DEVICE" -configuration Debug -allowProvisioningUpdates build
 """
 
 [tasks.device-install]
@@ -58,7 +61,7 @@ depends = ["device-build"]
 run = """
 set -e
 DEVICE=$(bash scripts/device-id.sh)
-APP_PATH=$(xcodebuild -project MobileIDE.xcodeproj -scheme MobileIDE -destination "id=$DEVICE" -configuration Debug -showBuildSettings 2>/dev/null | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $2; exit}')
+APP_PATH=$(xcodebuild -skipPackagePluginValidation -project MobileIDE.xcodeproj -scheme MobileIDE -destination "id=$DEVICE" -configuration Debug -showBuildSettings 2>/dev/null | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $2; exit}')
 xcrun devicectl device install app --device "$DEVICE" "$APP_PATH/MobileIDE.app"
 xcrun devicectl device process launch --device "$DEVICE" --terminate-existing com.d0ne1s.mobileide
 """
