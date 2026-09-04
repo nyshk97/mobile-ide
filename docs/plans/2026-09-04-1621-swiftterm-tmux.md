@@ -58,7 +58,7 @@ Core/SSH/PTYSession.swift                   @Observable @MainActor。connect →
 
 ### 事前準備 [人間👨‍💻]
 
-- [ ] iPhone のロックを解除して Air と同じ Wi-Fi にいることを確認する（Phase 6 の直前でよい）
+- [x] iPhone のロックを解除して Air と同じ Wi-Fi にいることを確認する（Phase 6 の直前でよい）
 
 ### Phase 1: SwiftTerm を入れてビルドを通す [AI🤖]
 
@@ -109,20 +109,20 @@ Core/SSH/PTYSession.swift                   @Observable @MainActor。connect →
 ### Phase 6: 実機確認 [AI🤖 + 人間👨‍💻]
 
 - [x] [AI] `mise run device-install` → autorun 付きで起動し、`connected` と `list-clients` の一致まで自走で確認
-- [ ] [人間] アプリを通常起動して「端末を開く」→ tmux に入る → 標準アクセサリの esc / ctrl / tab / 矢印が効く（`claude` を起動して Esc で中断、矢印で履歴）
-- [ ] [人間] 横向きに回転 → tmux のステータスバーが横幅いっぱいに描き直される（リサイズが届いている）
-- [ ] [人間] 戻るで画面を閉じ、もう一度開く → 同じ tmux セッションの続きが見える
-- [ ] [人間] 気になった描画崩れ・操作感をメモして報告（#6 の入力にする）
+- [x] [人間] アプリを通常起動して「端末を開く」→ tmux に入る → 標準アクセサリの esc / ctrl / tab / 矢印が効く（`claude` を起動して Esc で中断、矢印で履歴）
+- [x] [人間] 横向きに回転 → tmux のステータスバーが横幅いっぱいに描き直される（リサイズが届いている）
+- [x] [人間] 戻るで画面を閉じ、もう一度開く → 同じ tmux セッションの続きが見える
+- [x] [人間] 気になった描画崩れ・操作感をメモして報告（#6 の入力にする）
 
 ### Phase 7: 片付けと記録 [AI🤖]
 
 - [x] `VERIFY.md` に「端末（#3）」の節を追加（autorun の環境変数、Air 側の tmux コマンドでの観測手順、期待する stdout 行）
 - [x] plan のチェックとログを更新
-- [ ] コミット（`Closes #3` は実機確認が通ってから）・push、Issue #3 に実測結果をコメントして閉じ、ロードマップ #10 のチェック
+- [x] コミット（`Closes #3` は実機確認が通ってから）・push、Issue #3 に実測結果をコメントして閉じ、ロードマップ #10 のチェック
 
 ### 動作確認 [人間👨‍💻]
 
-- [ ] Phase 6 の 4 項目
+- [x] Phase 6 の 4 項目
 
 ## ログ
 
@@ -132,6 +132,7 @@ Core/SSH/PTYSession.swift                   @Observable @MainActor。connect →
 - 2026-09-04: 接続待ち（`.zshrc` 起動で数秒）の間にキーボード表示で 48 → 25 行に変わり、そのリサイズが `connecting` 中で捨てられていた。`PTYSession` が最新サイズを覚えて接続完了時に差分を送る形に修正。画面側も `idle` 以外は常に `resize` を呼ぶ
 - 2026-09-04: シェルが exit してサーバー側からチャネルが閉じたあと、Citadel の `withPTY` が close し直して `ChannelError.alreadyClosed` を投げる。「shell exited」に正規化した
 - 2026-09-04: `--console` 経由の stdout がパイプだと全バッファになり、`connected` 以降の目印行が届かなかった（画面は正しく切断表示になっていたので、切断検知の不具合と誤診しかけた）。`setvbuf(stdout, nil, _IONBF, 0)` で無バッファにして解消
+- 2026-09-04: 実機の手動確認（標準アクセサリ・回転・閉じて開き直す）はユーザーが「大丈夫そう」と報告。特記事項なし
 - 2026-09-04: シミュレータ 6 項目 PASS（Claude Code 描画 / detach → disconnected / セッション残存 / 入力経路 / -A 再 attach / サイズ一致）。実機は `.local` 名で接続し 57x27 でクライアントサイズ一致まで自走で確認
 
 ### 方針変更
