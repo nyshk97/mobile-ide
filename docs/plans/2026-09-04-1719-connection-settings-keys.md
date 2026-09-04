@@ -52,7 +52,7 @@ Features/Home/HomeView.swift      歯車 → 設定。未設定なら案内。�
 
 ### 事前準備 [人間👨‍💻]
 
-- [ ] なし（実機の確認は Phase 5 の直前にロック解除と同一 Wi-Fi）
+- [x] なし（実機の確認は Phase 5 の直前にロック解除と同一 Wi-Fi）
 
 ### Phase 1: 鍵ストアと移行 [AI🤖]
 
@@ -95,24 +95,24 @@ Features/Home/HomeView.swift      歯車 → 設定。未設定なら案内。�
 
 ### Phase 5 前の準備 [人間👨‍💻]
 
-- [ ] iPhone のロックを解除して Air と同じ Wi-Fi にいることを確認する
+- [x] iPhone のロックを解除して Air と同じ Wi-Fi にいることを確認する
 
 ### Phase 5: 実機確認 [AI🤖 + 人間👨‍💻]
 
 - [x] [AI] `mise run device-install` → `SSH pubkey` が更新前（`...IC6eD2xHuBh2enu+akq1HINoRnpzcOxWocESK5bh546p`）と同じ（実機でも移行成功）→ `MOBILE_IDE_CONNECTION_TEST=1 MOBILE_IDE_HOST=tsubasanoMacBook-Air-4.local MOBILE_IDE_USER=d0ne1s` で `hostkey trusted` → `test OK`
-- [ ] [人間] 歯車 → 設定画面。ホスト名 `tsubasanoMacBook-Air-4.local` とユーザー名 `d0ne1s` を入れる（環境変数の上書きは保存されないため）。ホスト鍵の指紋が Mac の `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` と一致する
-- [ ] [人間] 「鍵を作り直す」→ 確認 → 新しい公開鍵をコピー → Mac の `~/.ssh/authorized_keys` に足す（AI が Universal Clipboard の `pbpaste` で受け取って追記してもよい）→ 接続テスト OK → 端末も開ける
-- [ ] [人間] 「ホスト鍵を忘れる」→ 接続テスト → 再び記録される
+- [x] [人間] 歯車 → 設定画面。ホスト名 `tsubasanoMacBook-Air-4.local` とユーザー名 `d0ne1s` を入れる（環境変数の上書きは保存されないため）。ホスト鍵の指紋が Mac の `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` と一致する
+- [x] [人間] 「鍵を作り直す」→ 確認 → 新しい公開鍵をコピー → Mac の `~/.ssh/authorized_keys` に足す（AI が Universal Clipboard の `pbpaste` で受け取って追記してもよい）→ 接続テスト OK → 端末も開ける
+- [x] [人間] 「ホスト鍵を忘れる」→ 接続テスト → 再び記録される
 
 ### Phase 6: 片付けと記録 [AI🤖]
 
 - [x] VERIFY.md: 「SSH スパイク」節を「接続設定と鍵（#4）」に置き換え（authorized_keys 登録手順、TOFU の自走手順、plist の改竄手順、実機の手動項目）。「端末（#3）」節の環境変数名を更新
-- [ ] plan のチェックとログ
-- [ ] コミット・push、Issue #4 に結果をコメントして閉じる（`Closes #4` は実機確認後）、ロードマップ #10 のチェック。README の構成図の「ed25519 鍵をアプリ内で生成し…」は現状どおりなので変更不要
+- [x] plan のチェックとログ
+- [x] コミット・push、Issue #4 に結果をコメントして閉じる（`Closes #4` は実機確認後）、ロードマップ #10 のチェック。README の構成図の「ed25519 鍵をアプリ内で生成し…」は現状どおりなので変更不要
 
 ### 動作確認 [人間👨‍💻]
 
-- [ ] Phase 5 の 3 項目
+- [x] Phase 5 の 3 項目
 
 ## ログ
 
@@ -122,6 +122,7 @@ Features/Home/HomeView.swift      歯車 → 設定。未設定なら案内。�
 - 2026-09-04: シミュレータの UserDefaults を外から書き換えるのは不安定。`plutil` で plist を直接編集しても cfprefsd のキャッシュに負け、`simctl spawn booted defaults write` も再インストール後はアプリのコンテナと別の場所に書かれて効かなかった。TOFU の不一致経路は DEBUG 限定の起動オプション `MOBILE_IDE_KNOWNHOST=forget|<行>` でアプリ自身に操作させる形にした
 - 2026-09-04: `scripts/console-run.py` が `select` + 行バッファ付き `readline` だったため、2 行が同時に届くと 2 行目を取りこぼしていた（`SSH test NG` が出ていないと誤診し 3 往復した）。生の fd を `os.read` して自分で行に切る形に修正
 - 2026-09-04: `verify-terminal.py` 内の再起動に接続先の環境変数を渡していなかった（上書きは保存されない）ため 3 項目が偽 fail。`MOBILE_IDE_HOST` / `_USER` を毎回渡すよう修正して 6 / 6
+- 2026-09-04: 実機の手動確認（設定入力・指紋一致・鍵の作り直し → Universal Clipboard の `pbpaste` で受け取って authorized_keys に追記 → 接続 OK・端末が開く・ホスト鍵を忘れて再記録）はユーザーが「問題ない」と報告
 - 2026-09-04: TOFU の指紋は Mac の `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`（SHA256:uzqJAAa3...）と一致
 
 ### 方針変更
