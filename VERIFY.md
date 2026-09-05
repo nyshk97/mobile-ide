@@ -82,7 +82,7 @@ ssh -o BatchMode=yes -tt localhost 'zsh -ic "which tmux"'   # /opt/homebrew/bin/
 - 1 行目が `tmux 3.x` と `verify: 1 windows ...` を出し、対話なしで通ること（BatchMode なのでパスワードを聞かれると失敗する）
 - 2 行目が `Permission denied (publickey)` で落ちること（パスワード認証が閉じている証明）
 - 3 行目で tmux のパスが出ること。exec チャネル（1 行目）は `.zshrc` を読まないので PATH 前置きが必須。PATH 無しだと `command not found: tmux` になる（2026-09-04 に Air で実測）
-- iPhone からは同じ Wi-Fi 上で `tsubasanoMacBook-Air-4.local` に接続する（ホスト名は `scutil --get LocalHostName`）
+- iPhone からは Tailscale の MagicDNS 名 `tsubasamacbook-air.tail9fb38b.ts.net` に接続する（Mac 側で `Tailscale status --json` の `Self.DNSName`。Wi-Fi でもモバイル回線でも同じ名前）。2026-09-05 より前は同じ Wi-Fi 上の `tsubasanoMacBook-Air-4.local`（`scutil --get LocalHostName`）だった
 
 ## 接続設定と鍵（#4）
 
@@ -125,17 +125,18 @@ python3 scripts/console-run.py --env MOBILE_IDE_CONNECTION_TEST=1 --env MOBILE_I
 環境変数の上書き（`MOBILE_IDE_HOST` 等）は保存されない。実機で設定を残すには設定画面で手入力するか、DEBUG の `MOBILE_IDE_SAVE_SETTINGS=1` を付けて一度起動して焼き込む（手入力と同じ setter → didSet を通る）:
 
 ```sh
-python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_HOST=tsubasanoMacBook-Air-4.local --env MOBILE_IDE_USER=d0ne1s --env MOBILE_IDE_SAVE_SETTINGS=1 --until "PROJECTS"
+python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_HOST=tsubasamacbook-air.tail9fb38b.ts.net --env MOBILE_IDE_USER=d0ne1s --env MOBILE_IDE_SAVE_SETTINGS=1 --until "PROJECTS"
 ```
 
 ```sh
 mise run device-install
 python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --until "SSH pubkey"     # 公開鍵行を拾って authorized_keys に登録
 python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_CONNECTION_TEST=1 \
-    --env MOBILE_IDE_HOST=tsubasanoMacBook-Air-4.local --env MOBILE_IDE_USER=d0ne1s --until "SSH test"
+    --env MOBILE_IDE_HOST=tsubasamacbook-air.tail9fb38b.ts.net --env MOBILE_IDE_USER=d0ne1s --until "SSH test"
 ```
 
-- **初回接続で iPhone にローカルネットワークの許可ダイアログが出る。許可するまで `No route to host (errno: 65)` になる**（`.local` の名前解決は通っていて IP まで出るので、ネットワーク障害と見誤りやすい）。出ていなければ 設定 → プライバシーとセキュリティ → ローカルネットワーク で Mobile IDE を ON にする
+- 接続先は Tailscale の MagicDNS 名（2026-09-05 に導入。tailnet `tail9fb38b.ts.net`、Air = `tsubasamacbook-air` / 100.117.207.63、iPhone = `iphone184` / 100.119.208.94）。iPhone の Tailscale アプリが Connected であること。**アプリが Tailscale 経由で入っている証明は sshd の接続元が iPhone の 100.x であること**: `MOBILE_IDE_TERMINAL_AUTORUN=1 ... --keep` で端末を張ったまま `netstat -an -p tcp | awk '$4 ~ /\.22$/ && $6=="ESTABLISHED" {print $5}'` → `100.119.208.94.<port>`（`lsof` は root の sshd を見られないので使えない）。**同一 Wi-Fi にいる限り `.local` でも通ってしまうので、外出先想定の決定打は iPhone の Wi-Fi を切ってモバイル回線だけで一覧と端末が出ること**（手で確認）。経路が DERP リレーか直接かは `Tailscale ping 100.119.208.94`（`via DERP(tok)` / `via 192.168.x.x:41641`）で見える。直後は DERP でも数分で直接に昇格する
+- `.local` で繋いでいた頃は **初回接続で iPhone にローカルネットワークの許可ダイアログが出て、許可するまで `No route to host (errno: 65)` になった**（`.local` の名前解決は通っていて IP まで出るので、ネットワーク障害と見誤りやすい）。Tailscale の 100.x 宛てなら不要。出ていなければ 設定 → プライバシーとセキュリティ → ローカルネットワーク で Mobile IDE を ON にする
 - 手で確認する項目: 設定画面のホスト鍵の指紋が Mac の `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` と一致する / 「鍵を作り直す」→ 新しい公開鍵を登録 → 接続テスト OK / 「このホスト鍵を忘れる」→ 接続テストで再び記録される
 
 ## 端末（#3）
@@ -178,7 +179,7 @@ python3 scripts/verify-terminal.py                              # 接続先は M
 ```sh
 mise run device-install
 python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_TERMINAL_AUTORUN=1 \
-    --env MOBILE_IDE_HOST=tsubasanoMacBook-Air-4.local --env MOBILE_IDE_USER=d0ne1s --until "TERMINAL connected" --keep
+    --env MOBILE_IDE_HOST=tsubasamacbook-air.tail9fb38b.ts.net --env MOBILE_IDE_USER=d0ne1s --until "TERMINAL connected" --keep
 /opt/homebrew/bin/tmux list-clients -t mobile-ide -F '#{client_width}x#{client_height} created=#{client_created}'
 ```
 
@@ -215,7 +216,7 @@ mise run test                                                                   
 
 ```sh
 mise run device-install
-python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_HOST=tsubasanoMacBook-Air-4.local --env MOBILE_IDE_USER=d0ne1s --until "PROJECTS"
+python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_HOST=tsubasamacbook-air.tail9fb38b.ts.net --env MOBILE_IDE_USER=d0ne1s --until "PROJECTS"
 ```
 
 手で確認する項目: 一覧が PolePole のサイドバーと同じ順・同じ色 / ピン留めの行をタップして tmux に入り、プロンプトの作業ディレクトリがそのプロジェクト / 戻ると行に印 / pull-to-refresh で更新
