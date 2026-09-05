@@ -58,20 +58,23 @@ mise run device-run         # build → devicectl install → launch
 
 アプリから見たホストは sshd + tmux + PolePole の `projects.json` があるだけの SSH サーバー。Mac mini が届くまでは MacBook Air をホストにする（#1）。
 
-### 準備（1 回だけ・sudo が要る）
+### 準備（sudo が要る・冪等）
 
 ```sh
-sudo systemsetup -setremotelogin on
-printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nClientAliveInterval 15\nClientAliveCountMax 3\n' | sudo tee /etc/ssh/sshd_config.d/00-mobile-ide.conf
+bash scripts/host-setup.sh --skip-power --skip-autologin   # ノート（Air）。Mac mini はフラグ無し
+bash scripts/host-setup.sh --dry-run                        # 書かずに判定だけ（Claude Code のセッションからはこれ）
 ```
 
-`ClientAliveInterval` は、切れた接続の sshd-session と tmux クライアントを 45 秒程度で掃除させるため（既定の 0 だと数時間残る）。アプリ側は attach 時に `-D` で古いクライアントを蹴るので無くても動くが、Mac mini（#9）では入れておく。
+自分の Terminal で流す（sudo のパスワードを聞かれる。`systemsetup` はそのターミナルアプリにフルディスクアクセスが要る）。やること: sshd の `/etc/ssh/sshd_config.d/00-mobile-ide.conf`（パスワード認証オフ + `ClientAliveInterval 15` / `ClientAliveCountMax 3`）・リモートログイン・電源（`pmset -a sleep 0 disksleep 0 autorestart 1`）・自動ログイン・Brewfile（tmux / Tailscale / PolePole / Claude / Codex）・Claude Code CLI（mise の node に npm で入れる）。土台（Dropbox・Homebrew・mise・dotfiles）は先に済んでいる前提で、無ければステップ 0 で列挙して止まる。
 
-`00-` で置くのは、後から読まれた設定に負けないため（sshd は先に読まれた値が勝つ）。macOS の sshd は接続ごとに launchd が起動するので再起動は不要。Claude Code の Bash からは sudo が通らないので Terminal.app で実行する。
+各ステップが `step=<名前> result=changed|unchanged|skipped|unknown|failed` を 1 行出し、最後に `changed=<件数>` と「人が続きをやること」（GUI でしかできない項目）が出る。**2 回目の実行で `changed=0` になることが冪等性の判定基準**。`unknown` は sudo 無しで読めなかった項目（`--dry-run` をセッションから流したとき）。`failed` は書いたのに実効値が目的どおりにならなかった項目で、未完了リストに理由が出る。
 
-- System Settings → 一般 → 共有 → リモートログイン の (i) で「リモートユーザーにフルディスクアクセスを許可」を ON にする（`~/.ssh` と dotfiles が `~/Library/CloudStorage/` 配下にあり、sshd から読むのに必要）
-- tmux は Brewfile 経由で入れる（`brew 'tmux'`）
-- 手元の公開鍵を `~/.ssh/authorized_keys` に入れておく（Air では `id_rsa.pub` を登録済み）
+`ClientAliveInterval` は、切れた接続の sshd-session と tmux クライアントを 45 秒程度で掃除させるため（既定の 0 だと数時間残る）。アプリ側は attach 時に `-D` で古いクライアントを蹴るので無くても動くが、常時稼働のホストでは入れておく。**keepalive を送るのは sshd-session 自身なので、`kill -STOP` した接続はこの設定に関係なく残る**（効きを見るなら下の「ClientAlive の確認」）。
+
+`00-` で置くのは、後から読まれた設定に負けないため（sshd は先に読まれた値が勝つ）。macOS の sshd は接続ごとに launchd が起動するので再起動は不要。スクリプトは書く前後に `sshd -t` を通し、通らなければ退避から戻す（壊れた conf を置くと以後の新規接続が全部失敗し、外出先からは回復できない）。
+
+- System Settings → 一般 → 共有 → リモートログイン の (i) で「リモートユーザーにフルディスクアクセスを許可」を ON にする（`~/.ssh` と dotfiles が `~/Library/CloudStorage/` 配下にあり、sshd から読むのに必要。スクリプトの `step=fda` が判定する）
+- 手元の公開鍵を `~/.ssh/authorized_keys` に入れておく（Air では `id_rsa.pub` を登録済み）。アプリの鍵は `step=authorized_keys` が件数を出す
 
 ### 確認
 
@@ -81,12 +84,54 @@ ssh -o BatchMode=yes -o PreferredAuthentications=password -o PubkeyAuthenticatio
 ssh -o BatchMode=yes -tt localhost 'zsh -ic "which tmux"'   # /opt/homebrew/bin/tmux が出ること（.zshrc を sshd 経由で読めている証明）
 ```
 
+- 先に `sudo sshd -T | grep -i -E 'clientalive|passwordauth|kbdinteractive'` が `clientaliveinterval 15` / `clientalivecountmax 3` / `passwordauthentication no` / `kbdinteractiveauthentication no` を出すこと（スクリプトも同じ突き合わせをして `failed` にする）。Mac mini では `pmset -g custom` の全セクションで `sleep 0` / `disksleep 0` / `autorestart 1`、`sudo sysadminctl -autologin status` が自分のユーザー
 - 1 行目が `tmux 3.x` と `verify: 1 windows ...` を出し、対話なしで通ること（BatchMode なのでパスワードを聞かれると失敗する）
 - 2 行目が `Permission denied (publickey)` で落ちること（パスワード認証が閉じている証明）
 - 3 行目で tmux のパスが出ること。exec チャネル（1 行目）は `.zshrc` を読まないので PATH 前置きが必須。PATH 無しだと `command not found: tmux` になる（2026-09-04 に Air で実測）
 - iPhone からは Tailscale の MagicDNS 名 `tsubasamacbook-air.tail9fb38b.ts.net` に接続する（Mac 側で `Tailscale status --json` の `Self.DNSName`。Wi-Fi でもモバイル回線でも同じ名前）。2026-09-05 より前は同じ Wi-Fi 上の `tsubasanoMacBook-Air-4.local`（`scutil --get LocalHostName`）だった
 - **端末のプロンプトが素の `user@host dir %` になり mise / starship が `Operation not permitted` を出す**ときは、tmux サーバーが FDA を失っている（sshd 自身は読めていても、起動済みのサーバーは別）。`ssh localhost 'PATH=/opt/homebrew/bin:$PATH; tmux -L probe new-session -d "cat ~/.config/mise/config.toml > /tmp/tcc.out 2>&1"; sleep 1; cat /tmp/tcc.out; tmux -L probe kill-server'` で新サーバーなら読めることを確認し、`tmux kill-server` で作り直す（全セッションが消える。2026-09-05 に実例）
 - **tmux 内で `claude` を起動すると「Not logged in · Run /login」になる**ときは、tmux サーバーが sshd から起動されていてログインキーチェーンが閉じている（Claude Code の資格情報はログインキーチェーンにある）。サーバーは GUI ログインセッション側から起動しておく: Mac の Terminal / Claude Code から `tmux new -d -s bootstrap; tmux set -g exit-empty off; tmux kill-session -t bootstrap`（`exit-empty off` でセッションが 0 でもサーバーが残る）。切り分けは `ps -o ppid= -p $(tmux display -p '#{pid}')` の親が launchd で、サーバー起動時の親が sshd だったかどうか（2026-09-05 に実例。Mac mini では launchd agent にする → #9）
+
+### ClientAlive の確認
+
+```sh
+bash scripts/verify-clientalive.sh --expect gone                # 4 行の conf: 75 秒前後で tmux クライアントと sshd-session が両方消える（既定は最大 90 秒待つ）
+bash scripts/verify-clientalive.sh --wait 120 --expect remain   # 陰性対照（ClientAliveInterval 0）: 120 秒待っても両方残る
+```
+
+`scripts/ssh-proxy.py` 経由で素の ssh を tmux セッション `clientalive` に attach し、proxy を SIGUSR1 で凍結（ソケットは保ったまま中継停止 = keepalive の応答が返らない）して待つ。`client:` / `sshd-session:` の行で対象を特定してから凍結するので、件数の増減ではなく**その**接続が消えたかで判定する。sudo は要らない。
+
+- 切れるのは 45 秒ではない。OpenSSH は未応答の数が CountMax を**超えた**ときに切るので最短でも 15 × 4 = 60 秒、Air の実測は凍結から 75 秒（`t=75s client=gone sshd=gone`）。60 秒待ちで判定すると偽 FAIL になる（2026-09-05 に踏んだ）。陰性対照は 75 秒より長く待たないと意味が無い
+- 2026-09-05 に Air で実測: 4 行の conf で 75 秒で両方消える（PASS expect=gone）。2 行の conf（`ClientAliveInterval` 無し）では 120 秒待っても両方残る（PASS expect=remain）
+- アプリのクライアントを刺激に使わない: 再接続時の `-D` で蹴られて設定に関係なく消える。sshd-session を `kill -STOP` しない: keepalive を送るのは sshd-session 自身で、止めるとタイマーごと止まる
+
+## Mac mini 到着前に Air で通したこと（#9）
+
+### Remote Control
+
+tmux 内で起動した Claude Code を、iPhone の Claude アプリ（Remote Control）から操作できるかを見る。アプリが attach する `mobile-ide` とは別の tmux セッションで起動し、tmux 上の操作が混ざらないようにする。
+
+```sh
+tmux new-session -d -s rc -c ~/mobile-ide 'claude --remote-control mobile-ide-rc'
+sleep 15; tmux capture-pane -p -t rc | grep -v '^$' | tail -15     # セッション名と接続状態が出る
+```
+
+- iPhone の Claude アプリ → Code（Remote Control）の一覧に `mobile-ide-rc` が出て、アプリから送った指示が `tmux capture-pane -p -t rc` にも出ること
+- 逆に tmux 側（`tmux send-keys -t rc '...' Enter`）で打った内容がアプリに出ること
+- 片付けは `tmux send-keys -t rc '/exit' Enter` → `tmux kill-session -t rc`
+- 2026-09-05 に Air で実測: アプリのコード → セッション一覧に `mobile-ide-rc`（サブタイトル mobile-ide）が出て、アプリから送った「READMEの1行目を読んで」が tmux の画面にも `❯ READMEの1行目を読んで` → `# mobile-ide` で出た。tmux から `send-keys` で送った文もそのまま応答が返り、アプリ側にも出た（双方向で成立）
+
+### Claude Code の会話を端末間で引き継ぐ
+
+iPhone の tmux で始めた会話を PolePole のターミナルで `claude --resume <uuid>` して続きから話す（逆方向も）。会話は `~/.claude/projects/<cwd をエンコードしたディレクトリ>/<uuid>.jsonl` に落ちるので、同じホーム・同じ作業ディレクトリならどの端末からでも再開できる。
+
+1. Mac 側で目印を作る: `openssl rand -hex 3`（値はどこにも書かない。書くと AI のセッションの jsonl にも入って grep が複数ヒットする）。`date +%s` も控える
+2. iPhone のアプリから `mobile-ide` の tmux セッションに入り、`claude` で「合言葉は <目印>、と覚えて」を 1 往復して `/exit`
+3. Mac 側で uuid を特定: `grep -l '<目印>' ~/.claude/projects/-Users-d0ne1s-mobile-ide/*.jsonl` のうち、手順 1 の時刻以降に更新されたもの（`find ... -newermt @<epoch>`）。1 件に絞れなければ目印を作り直す。mtime 最新だけでは AI 自身の作業セッションを掴む
+4. PolePole で mobile-ide を開き、ターミナルで `claude --resume <uuid>` → 「合言葉は?」で目印が返ること
+5. 逆方向: PolePole で `/exit` → iPhone の tmux で `claude --resume <uuid>`（または `claude -r` のピッカー）→ 同じ質問で目印が返ること
+
+- 2026-09-05 に Air で実測: 目印の grep は 1 件だけヒット（AI のセッションには目印を一度も表示していないので混ざらない）。PolePole の `claude --resume <uuid>` と iPhone からの再開の両方で目印が返り、jsonl に 3 往復（iPhone → PolePole → iPhone）が順に追記された（38 行 → 52 行）
 
 ## 接続設定と鍵（#4）
 

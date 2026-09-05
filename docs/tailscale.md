@@ -45,4 +45,14 @@ CLI は `/Applications/Tailscale.app/Contents/MacOS/Tailscale`。`status` / `pin
 
 ## Mac mini 到着後
 
-上の Mac 側手順を mini で繰り返し、アプリの設定画面でホスト名を mini の MagicDNS 名に変えるだけ。Air の Tailscale はそのまま残してよい（別マシンとして共存する）。Tailscale SSH（Tailscale 側の認証で SSH する機能）は使わない。本アプリは自前の ed25519 鍵で `authorized_keys` に入る設計のまま。
+チェックリストは issue #12。手順の実体はここ。
+
+1. 土台: Dropbox にサインインして同期 → `~/Library/CloudStorage/Dropbox/settings/setup-dotfiles.sh` → Homebrew / mise（新しい Mac の既存手順）。FileVault はオフのまま（自動ログインと両立しない）
+2. `bash scripts/host-setup.sh` をフラグ無しで流す（sshd・リモートログイン・pmset・自動ログイン・Brewfile・Claude Code CLI。sudo と自分のパスワードを聞かれる）。もう一度流して `changed=0` になることを確認する。詳細は [VERIFY.md](../VERIFY.md) の「ホスト → 準備」
+3. GUI の残り（スクリプト末尾の「人が続きをやること」に出る）: リモートログインの「リモートユーザーにフルディスクアクセスを許可」、`open -a Tailscale` → Sign in → 管理画面で **Disable key expiry**
+4. iPhone の公開鍵を `~/.ssh/authorized_keys` に登録し、`bash scripts/host-setup.sh --dry-run` で `fda` / `tailscale` / `authorized_keys` が全部 `ok` になるまで戻る
+5. アプリの設定画面でホスト名を mini の MagicDNS 名（`Tailscale status --json` の `Self.DNSName`）に変える。実機への焼き込みは VERIFY.md「接続設定と鍵 → 実機」
+
+Air の Tailscale はそのまま残してよい（別マシンとして共存する）。Tailscale SSH（Tailscale 側の認証で SSH する機能）は使わない。本アプリは自前の ed25519 鍵で `authorized_keys` に入る設計のまま。
+
+未解決: tmux サーバーを GUI ログイン側で起こす仕組み。sshd から起動されたサーバーはログインキーチェーンを読めず、tmux 内の Claude Code が「Not logged in」になる（VERIFY.md「ホスト → 確認」）。LaunchAgent で起こすとキーチェーンは読めるが、`~/Library/CloudStorage` の読み取りが TCC で止まる（2026-09-05 に Air で確認。`cat ~/.config/mise/config.toml` が返ってこない）。tmux バイナリにフルディスクアクセスを付けるか、別の起こし方にするかは #12 で決める。
