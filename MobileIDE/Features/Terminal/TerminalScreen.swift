@@ -15,7 +15,6 @@ struct TerminalScreen: View {
     @State private var attachments = AttachmentFlow()
     @State private var wired = false
     @State private var didAutomate = false
-    @State private var isControlArmed = false
     @State private var isKeyboardVisible = false
 
     var body: some View {
@@ -23,7 +22,7 @@ struct TerminalScreen: View {
             TerminalSurfaceView(surface: surface)
                 .overlay { overlay }
                 .overlay(alignment: .top) { topBanner }
-            KeyboardBar(isControlArmed: isControlArmed, isKeyboardVisible: isKeyboardVisible, perform: perform)
+            KeyboardBar(isKeyboardVisible: isKeyboardVisible, perform: perform)
         }
         .navigationTitle(target.sessionName)
         .navigationBarTitleDisplayMode(.inline)
@@ -62,9 +61,8 @@ struct TerminalScreen: View {
         switch action {
         case .key(let key):
             surface.send(bytes: key.bytes(applicationCursor: surface.usesApplicationCursorKeys))
-        case .toggleControl:
-            surface.controlPending.toggle()
-            isControlArmed = surface.controlPending
+        case .shortcut(let shortcut):
+            surface.send(text: shortcut.text)
         case .toggleKeyboard:
             if isKeyboardVisible { surface.hideKeyboard() } else { surface.showKeyboard() }
         }
@@ -85,10 +83,10 @@ struct TerminalScreen: View {
                     continue
                 }
                 perform(action)
-                switch action {
-                case .toggleControl: print("KEYS pressed ctrl armed=\(isControlArmed)")
-                case .toggleKeyboard: print("KEYS pressed keyboard")
-                case .key(let key): print("KEYS pressed \(key.rawValue) appCursor=\(surface.usesApplicationCursorKeys)")
+                if case .key = action {
+                    print("KEYS pressed \(action.name) appCursor=\(surface.usesApplicationCursorKeys)")
+                } else {
+                    print("KEYS pressed \(action.name)")
                 }
                 fflush(stdout)
                 try? await Task.sleep(for: .milliseconds(300))
@@ -225,7 +223,6 @@ struct TerminalScreen: View {
             }
         }
         session.onOutput = { bytes in surface.feed(bytes) }
-        surface.onControlReset = { isControlArmed = false }
         // Wi-Fi ↔ モバイル回線の切り替わりやオフラインからの復帰。無音で死んだ接続を探る契機
         network.onChange = { session.verifyAlive() }
         network.start()

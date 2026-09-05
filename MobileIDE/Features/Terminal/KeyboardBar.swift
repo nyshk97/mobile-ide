@@ -1,47 +1,58 @@
 import SwiftUI
 
-/// 端末の下に常駐するキーボードバー。
+/// 端末の下に常駐するキーボードバー（#6 → #13 で整理）。
 ///
-/// 並び: esc ctrl tab ⇧tab ^C | ~ / - | | ← ↓ ↑ → ⏎ | キーボード切替。狭い画面では横スクロール。
+/// 並び: [Claude] [Codex] [git ▾] [/ ▾] | tab ^C | ← ↓ ↑ → ⏎ | キーボード切替。狭い画面では横スクロール。
+/// 起動系（Claude / Codex / gpull / gpush）は Enter まで送り、スラッシュコマンドは文字列だけ流す（`Shortcut`）。
 struct KeyboardBar: View {
     enum Action: Hashable {
         case key(TerminalKey)
-        case toggleControl
+        case shortcut(Shortcut)
         case toggleKeyboard
 
         /// 自走検証（MOBILE_IDE_PRESS_KEYS）の名前から
         init?(name: String) {
-            switch name {
-            case "ctrl": self = .toggleControl
-            case "keyboard": self = .toggleKeyboard
-            default:
-                guard let key = TerminalKey(rawValue: name) else { return nil }
+            if name == "keyboard" {
+                self = .toggleKeyboard
+            } else if let key = TerminalKey(rawValue: name) {
                 self = .key(key)
+            } else if let shortcut = Shortcut(name: name) {
+                self = .shortcut(shortcut)
+            } else {
+                return nil
+            }
+        }
+
+        /// 目印行（`KEYS pressed <name>`）に出す名前
+        var name: String {
+            switch self {
+            case .key(let key): return key.rawValue
+            case .shortcut(let shortcut): return shortcut.name
+            case .toggleKeyboard: return "keyboard"
             }
         }
     }
 
-    var isControlArmed: Bool
     var isKeyboardVisible: Bool
     var perform: (Action) -> Void
 
-    private let groups: [[TerminalKey]] = [
-        [.esc, .tab, .shiftTab, .ctrlC],
-        [.tilde, .slash, .dash, .pipe],
-        [.left, .down, .up, .right, .enter],
-    ]
+    private let keys: [TerminalKey] = [.tab, .ctrlC]
+    private let cursorKeys: [TerminalKey] = [.left, .down, .up, .right, .enter]
 
     var body: some View {
         HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    keyButton(.esc)
-                    controlButton
-                    ForEach(groups[0].dropFirst(), id: \.self) { keyButton($0) }
+                    launcher(.claude, label: "Claude Code を起動") { ClaudeMark() }
+                    launcher(.codex, label: "Codex を起動") { CodexMark() }
+                    menu(label: "git", items: [.gpull, .gpush]) { GitMark() }
+                    menu(label: "スラッシュコマンド", items: Shortcut.slashCommands.map { .slash($0) }) {
+                        Text("/").font(.system(size: 17, design: .monospaced).weight(.medium))
+                    }
                     divider
-                    ForEach(groups[1]) { keyButton($0) }
+                    ForEach(keys) { keyButton($0) }
                     divider
-                    ForEach(groups[2]) { keyButton($0) }
+                    ForEach(cursorKeys) { keyButton($0) }
                 }
                 .padding(.horizontal, 8)
             }
@@ -63,32 +74,50 @@ struct KeyboardBar: View {
     }
 
     /// キーの見た目を 1 か所に。`.bordered` は左右の余白が大きく 1 画面に 4 つしか並ばないので自前
-    static func keyLabel(_ text: String, emphasized: Bool = false, pressed: Bool = false) -> some View {
+    static func keyLabel(_ text: String, pressed: Bool = false) -> some View {
         Text(text)
             .font(.system(.footnote, design: .monospaced).weight(.medium))
             .lineLimit(1)
             .padding(.horizontal, 10)
             .frame(minWidth: 36, minHeight: 34)
-            .background(
-                emphasized ? Color.accentColor.opacity(0.3) : Color.secondary.opacity(pressed ? 0.35 : 0.15),
-                in: RoundedRectangle(cornerRadius: 8)
-            )
-            .foregroundStyle(emphasized ? Color.accentColor : Color.primary)
+            .background(Color.secondary.opacity(pressed ? 0.35 : 0.15), in: RoundedRectangle(cornerRadius: 8))
+            .foregroundStyle(Color.primary)
+    }
+
+    /// マーク付きボタンの枡（起動系・メニューで共通）
+    private static func iconWell<Mark: View>(@ViewBuilder mark: () -> Mark) -> some View {
+        mark()
+            .frame(width: 20, height: 20)
+            .frame(width: 40, height: 34)
+            .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+            .foregroundStyle(Color.primary)
     }
 
     private var divider: some View {
         Divider().frame(height: 24).padding(.horizontal, 2)
     }
 
-    private var controlButton: some View {
+    private func launcher<Mark: View>(_ shortcut: Shortcut, label: String, @ViewBuilder mark: () -> Mark) -> some View {
         Button {
-            perform(.toggleControl)
+            perform(.shortcut(shortcut))
         } label: {
-            Self.keyLabel("ctrl", emphasized: isControlArmed)
+            Self.iconWell(mark: mark)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Control")
-        .accessibilityValue(isControlArmed ? "次のキーに乗せる" : "オフ")
+        .accessibilityLabel(label)
+    }
+
+    /// 上に開くメニュー。項目の並びは `items` の順（`.menuOrder(.fixed)`）
+    private func menu<Mark: View>(label: String, items: [Shortcut], @ViewBuilder mark: () -> Mark) -> some View {
+        Menu {
+            ForEach(items, id: \.self) { item in
+                Button(item.name) { perform(.shortcut(item)) }
+            }
+        } label: {
+            Self.iconWell(mark: mark)
+        }
+        .menuOrder(.fixed)
+        .accessibilityLabel(label)
     }
 
     @ViewBuilder
@@ -147,7 +176,7 @@ private struct RepeatKeyButton: View {
 #Preview {
     VStack {
         Spacer()
-        KeyboardBar(isControlArmed: false, isKeyboardVisible: true) { _ in }
-        KeyboardBar(isControlArmed: true, isKeyboardVisible: false) { _ in }
+        KeyboardBar(isKeyboardVisible: true) { _ in }
+        KeyboardBar(isKeyboardVisible: false) { _ in }
     }
 }

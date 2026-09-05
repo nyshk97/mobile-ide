@@ -24,7 +24,7 @@ final class TerminalKeyTests: XCTestCase {
     }
 
     func testBarActionNames() {
-        XCTAssertEqual(KeyboardBar.Action(name: "ctrl"), .toggleControl)
+        XCTAssertNil(KeyboardBar.Action(name: "ctrl"))  // ctrl ボタンは #13 で落とした
         XCTAssertEqual(KeyboardBar.Action(name: "keyboard"), .toggleKeyboard)
         XCTAssertEqual(KeyboardBar.Action(name: "shiftTab"), .key(.shiftTab))
         XCTAssertNil(KeyboardBar.Action(name: "nope"))

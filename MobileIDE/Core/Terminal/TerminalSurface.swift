@@ -30,10 +30,6 @@ protocol TerminalSurface: AnyObject {
     func send(bytes: [UInt8])
     /// 文字列を入力として送る
     func send(text: String)
-    /// Ctrl のワンショット。true にすると次に打った 1 文字に Ctrl が乗り、エミュレータが false に戻す
-    var controlPending: Bool { get set }
-    /// エミュレータが Ctrl を消費して false に戻したとき（バーの見た目を戻す）
-    var onControlReset: (() -> Void)? { get set }
     /// アプリケーションカーソルモード（DECCKM）。矢印の送出列を切り替える
     var usesApplicationCursorKeys: Bool { get }
     /// ソフトウェアキーボードを出す / 閉じる

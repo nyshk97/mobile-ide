@@ -6,12 +6,10 @@ import UIKit
 @MainActor
 final class SwiftTermSurface: NSObject, TerminalSurface {
     private let terminalView: TerminalView
-    private var controlResetObserver: NSObjectProtocol?
 
     private(set) var currentSize: TerminalSize?
     var onInput: ((Data) -> Void)?
     var onResize: ((TerminalSize) -> Void)?
-    var onControlReset: (() -> Void)?
 
     var view: UIView { terminalView }
 
@@ -28,17 +26,6 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
         terminalView.nativeForegroundColor = .label
         // 既定の inputAccessoryView（esc / ctrl / tab / 矢印）は外し、端末の下に常駐する自前のバー（KeyboardBar）を使う
         terminalView.inputAccessoryView = nil
-        controlResetObserver = NotificationCenter.default.addObserver(
-            forName: .terminalViewControlModifierReset,
-            object: terminalView,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.onControlReset?() }
-        }
-    }
-
-    deinit {
-        if let controlResetObserver { NotificationCenter.default.removeObserver(controlResetObserver) }
     }
 
     func feed(_ bytes: ArraySlice<UInt8>) {
@@ -52,11 +39,6 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
 
     func send(text: String) {
         terminalView.send(txt: text)
-    }
-
-    var controlPending: Bool {
-        get { terminalView.controlModifier }
-        set { terminalView.controlModifier = newValue }
     }
 
     func showKeyboard() {

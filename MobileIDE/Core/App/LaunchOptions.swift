@@ -6,7 +6,8 @@ import Foundation
 /// - `MOBILE_IDE_TERMINAL_AUTORUN=1`: 起動直後に `mobile-ide` の端末画面を開く（一覧を経由しない）
 /// - `MOBILE_IDE_OPEN_PROJECT=<sessionName>`: 一覧を読み終えたら該当行の端末を開く
 /// - `MOBILE_IDE_TERMINAL_TYPE=<text>`: 端末接続後 1 秒待ってその文字列を送る（`\n` は改行に展開）
-/// - `MOBILE_IDE_PRESS_KEYS=esc,tab,ctrl,keyboard`（DEBUG のみ）: 端末接続後、キーボードバーの操作を順に再現する
+/// - `MOBILE_IDE_PRESS_KEYS=tab,enter,claude,gpull,/dig,keyboard`（DEBUG のみ）: 端末接続後、キーボードバーの操作を順に再現する。
+///   `TerminalKey` の名前（バーに無い esc 等も可）、ショートカット（`claude` / `codex` / `gpull` / `gpush` / `/` 始まり）、`keyboard`
 /// - `MOBILE_IDE_PROBE_AFTER=<秒>`（DEBUG のみ）: 端末接続の N 秒後に生存判定（フォアグラウンド復帰と同じ経路）を呼ぶ。
 ///   シミュレータでは scenePhase を外から起こせないため
 /// - `MOBILE_IDE_UPLOAD_FILE=<path>[,<path>…]`（DEBUG のみ）: 端末接続後、ホスト側のそのファイルを画像添付と同じ経路

@@ -57,7 +57,7 @@ iPhone アプリ                          Mac mini
 1. **接続設定**: ホスト名（Tailscale の MagicDNS 名）、ユーザー名、ed25519 鍵の生成と公開鍵の表示。接続先は 1 台固定
 2. **プロジェクト一覧**: `projects.json` を読んで PolePole のピン順で表示。`tmux list-sessions` と突き合わせ、生きているセッションがある行にマーク
 3. **セッションを開く**: タップで PTY チャネルを開き `tmux new-session -A -s <name> -c <path>` を流す。初回も 2 回目も同じコマンド
-4. **端末画面**: SwiftTerm 1 枚 + 端末の下に常駐するキーボードバー（Esc / Ctrl / Tab / Shift+Tab / Ctrl+C / `~ / - |` / 矢印 4 方向 / Enter / キーボード切替）。Ctrl はトグルで次の 1 キーに乗せる。日本語入力は確定後にだけ送る
+4. **端末画面**: SwiftTerm 1 枚 + 端末の下に常駐するキーボードバー（Claude Code 起動 / Codex 起動 / git メニュー（gpull・gpush）/ スラッシュコマンドのメニュー / Tab / Ctrl+C / 矢印 4 方向 / Enter / キーボード切替）。日本語入力は確定後にだけ送る
 5. **再接続**: 回線断を検出したらバックオフ付きで黙って SSH を張り直し、同じ tmux セッションに attach し直す。フォアグラウンド復帰時と経路変更時（Wi-Fi ↔ モバイル回線）は短い exec で生存を探り、死んでいれば張り直す。attach は `tmux new-session -A -D` で、切れた前の自分などの他クライアントを detach する。tmux 内で exit した正常終了は自動では張り直さない
 6. **画像添付**: 写真ピッカーで最大 4 枚選び、長辺 2048px に縮小（写真は JPEG、スクショは PNG のまま）して SFTP で `~/.claude/uploads/` に置き、`@<絶対パス> ` を端末に流し込む。途中で失敗しても成功分だけ流し込む
 
