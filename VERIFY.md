@@ -119,6 +119,7 @@ sleep 15; tmux capture-pane -p -t rc | grep -v '^$' | tail -15     # セッシ�
 - iPhone の Claude アプリ → Code（Remote Control）の一覧に `mobile-ide-rc` が出て、アプリから送った指示が `tmux capture-pane -p -t rc` にも出ること
 - 逆に tmux 側（`tmux send-keys -t rc '...' Enter`）で打った内容がアプリに出ること
 - 片付けは `tmux send-keys -t rc '/exit' Enter` → `tmux kill-session -t rc`
+- 実行主体は Mac 側の `claude` プロセス。Mac がオフラインになるとアプリからは続けられない（復帰すれば再接続する）。iPhone のアプリは Anthropic のサーバーと話すだけなので、この経路には Tailscale は要らない
 - 2026-09-05 に Air で実測: アプリのコード → セッション一覧に `mobile-ide-rc`（サブタイトル mobile-ide）が出て、アプリから送った「READMEの1行目を読んで」が tmux の画面にも `❯ READMEの1行目を読んで` → `# mobile-ide` で出た。tmux から `send-keys` で送った文もそのまま応答が返り、アプリ側にも出た（双方向で成立）
 
 ### Claude Code の会話を端末間で引き継ぐ
