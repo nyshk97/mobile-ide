@@ -280,8 +280,20 @@ python3 scripts/verify-reconnect.py      # 5 シナリオ 8 項目（SUMMARY: 8 
 - `scripts/verify-terminal.py` の 6 項目も通ること（`-D` を足しても端末の基本が壊れていない）
 - scenePhase はシミュレータから起こせないので `MOBILE_IDE_PROBE_AFTER`（DEBUG）で同じ経路を呼ぶ。scenePhase と経路変更の配線は実機で見る
 
-### 実機（手で確認）
+### 実機
 
+iPhone を触らずに Mac 側から起こせる項目は Mac 側で起こす（2026-09-05 に Tailscale 経由で全部通した）。裏取りは `tmux list-clients -t <session>`（`client_created` が断の後・1 件だけ）と `netstat -an -p tcp | grep '\.22 .*ESTABLISHED'`（接続元が iPhone の 100.x）。devicectl のトンネルは Wi-Fi 経由だと `unavailable` になりがちで、アプリのログは当てにしない。
+
+```sh
+PID=$(ps -axo pid,command | grep "sshd-session: d0ne1s@ttys" | grep -v grep | awk '{print $1}' | head -1)
+kill -9 $PID      # 回線断: iPhone にバナーが一瞬出て 2 秒で再 attach
+kill -STOP $PID   # 無音の断: iPhone で別アプリに切り替えて戻ると生存判定 → バナー → 再 attach。古い sshd は kill -9 で片付ける
+( sleep 90 | TERM=xterm-256color script -q /dev/null /opt/homebrew/bin/tmux attach -t mobile-ide ) &   # -D の確認: Mac を 2 クライアント目にしてから kill -9 $PID → Mac 側だけ detach される
+```
+
+手で確認する項目:
+
+- モバイル回線 ↔ Wi-Fi を切り替える。Tailscale（WireGuard）が経路を引き継ぐので **SSH 接続は切れずそのまま打てる**のが正常（`Tailscale status` の iPhone の endpoint が公衆 IP ↔ 192.168.x に変わるのに `netstat` の接続が同じ）。バナーが一瞬出て続きに戻るのも OK
 - 端末を開いたまま Wi-Fi をオフ → 数秒後オン。バナーが出て、同じ tmux セッションの続きが表示される（`claude` を起動しておくと分かりやすい）
 - 別アプリに切り替えて 1 分以上置いて戻る。生きていれば何も出ない、切れていればバナー → 続きが表示される
 - 機内モードを 2 分入れて戻す → 自動で戻る。機内モード中に「今すぐ」を押しても多重にならない（バナーの回数が 1 つずつ進む）
