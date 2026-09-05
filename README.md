@@ -34,7 +34,7 @@ iPhone アプリ                          Mac mini
    iPhone の Tailscale アプリが VPN として常駐
 ```
 
-- **ネットワーク**: Tailscale。マンション一括回線でポート開放できない前提。iPhone 側は Tailscale アプリを VPN として入れるだけで、本アプリは何も知らない
+- **ネットワーク**: Tailscale。マンション一括回線でポート開放できない前提。iPhone 側は Tailscale アプリを VPN として入れるだけで、本アプリは何も知らない。導入済み（2026-09-05）。tailnet・マシン名・手順・罠は [docs/tailscale.md](docs/tailscale.md)
 - **トランスポート**: SSH（Mac mini のリモートログイン）。ed25519 鍵をアプリ内で生成し、公開鍵を `authorized_keys` に登録する。パスワード認証は切る
 - **SSH クライアント**: [Citadel](https://github.com/orlandos-nl/Citadel)（SwiftNIO SSH ベース。exec / PTY / SFTP を 1 接続で多重化）
 - **端末エミュレータ**: [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)。将来 libghostty の iOS ターゲットに差し替えられるよう protocol の裏に隠す
