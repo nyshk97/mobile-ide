@@ -11,6 +11,8 @@
 
 `project.yml` を編集したら必ず再生成する。ユニットテスト（`MobileIDETests`。parse・セッション名など純粋なロジック）は `mise run test`（起動中のシミュレータで `xcodebuild test`）。
 
+`mise run test` が `IndexError: list index out of range` のトレースバックで落ちるときは、シミュレータが起動していない（UDID を取る 1 行スクリプトが空のリストを引いている）。`mise run install` も `BUILD SUCCEEDED` のあと install だけ黙って失敗する。`mise run boot` で起動してからやり直す（2026-09-05 に実例）。
+
 ```sh
 mise run gen    # = xcodegen generate
 ```
