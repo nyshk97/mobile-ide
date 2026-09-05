@@ -9,3 +9,4 @@ iPhone から Mac mini（開発中は MacBook Air）に SSH 接続し、tmux 上
 ## ホスト側の癖
 
 - **tmux 内の新しいシェルだけ `.zshrc` が効かない（素のプロンプト・mise / starship が `Operation not permitted`）ときは、tmux サーバーが TCC のアクセスを失っている**: サーバーは 1 つで新しいシェルは全部そこから fork されるので、サーバーが `~/Library/CloudStorage`（dotfiles の実体）を読めないと以後の全セッションが素の zsh になる。sshd や Terminal から直接読めていても関係ないし、アプリの接続設定やリモートログインの FDA 設定を疑っても直らない。切り分けは別ソケットで新サーバーを立てて読めるか（VERIFY.md のホスト → 確認）。直すには `tmux kill-server` でサーバーを作り直す（全セッションが消えるので、中の Claude Code は `--resume` 用の ID を控えてから）。2026-09-05 に実例
+- **tmux 内の Claude Code が「Not logged in · Run /login」になるときは、tmux サーバーが sshd から起動されている**: ログインキーチェーンは GUI ログインセッションでしか開いておらず、sshd 経由で最初に `tmux new-session` した接続がサーバーを起動すると、その子（全セッションのシェルと claude）はキーチェーンを読めない。アプリ側の問題ではないので、`/login` を促す前にサーバーの起動元を疑う。直し方は VERIFY.md のホストの節（GUI 側から `exit-empty off` で起動し直す）。2026-09-05 に実例

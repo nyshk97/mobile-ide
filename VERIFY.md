@@ -84,6 +84,7 @@ ssh -o BatchMode=yes -tt localhost 'zsh -ic "which tmux"'   # /opt/homebrew/bin/
 - 3 行目で tmux のパスが出ること。exec チャネル（1 行目）は `.zshrc` を読まないので PATH 前置きが必須。PATH 無しだと `command not found: tmux` になる（2026-09-04 に Air で実測）
 - iPhone からは Tailscale の MagicDNS 名 `tsubasamacbook-air.tail9fb38b.ts.net` に接続する（Mac 側で `Tailscale status --json` の `Self.DNSName`。Wi-Fi でもモバイル回線でも同じ名前）。2026-09-05 より前は同じ Wi-Fi 上の `tsubasanoMacBook-Air-4.local`（`scutil --get LocalHostName`）だった
 - **端末のプロンプトが素の `user@host dir %` になり mise / starship が `Operation not permitted` を出す**ときは、tmux サーバーが FDA を失っている（sshd 自身は読めていても、起動済みのサーバーは別）。`ssh localhost 'PATH=/opt/homebrew/bin:$PATH; tmux -L probe new-session -d "cat ~/.config/mise/config.toml > /tmp/tcc.out 2>&1"; sleep 1; cat /tmp/tcc.out; tmux -L probe kill-server'` で新サーバーなら読めることを確認し、`tmux kill-server` で作り直す（全セッションが消える。2026-09-05 に実例）
+- **tmux 内で `claude` を起動すると「Not logged in · Run /login」になる**ときは、tmux サーバーが sshd から起動されていてログインキーチェーンが閉じている（Claude Code の資格情報はログインキーチェーンにある）。サーバーは GUI ログインセッション側から起動しておく: Mac の Terminal / Claude Code から `tmux new -d -s bootstrap; tmux set -g exit-empty off; tmux kill-session -t bootstrap`（`exit-empty off` でセッションが 0 でもサーバーが残る）。切り分けは `ps -o ppid= -p $(tmux display -p '#{pid}')` の親が launchd で、サーバー起動時の親が sshd だったかどうか（2026-09-05 に実例。Mac mini では launchd agent にする → #9）
 
 ## 接続設定と鍵（#4）
 
@@ -300,3 +301,34 @@ kill -STOP $PID   # 無音の断: iPhone で別アプリに切り替えて戻る
 - 機内モードを 2 分入れて戻す → 自動で戻る。機内モード中に「今すぐ」を押しても多重にならない（バナーの回数が 1 つずつ進む）
 - tmux 内で `exit` → 「セッションを抜けました」で止まり、勝手に作り直されない。「再接続」で新しいセッションが開く
 - Mac 側で `tmux attach -t <同じセッション>` してから iPhone で再接続 → Mac 側が detach される（`-D`）
+
+## 画像添付（#8）
+
+端末画面の右上（写真アイコン）から PhotosPicker で最大 4 枚選ぶと、アップロード専用の SSH 接続を張って `~/.claude/uploads/`（無ければ `mkdir -p`）に SFTP で置き、端末に `@/絶対パス ` を枚数分流し込む。写真（HEIC / JPEG）は長辺 2048px の JPEG 品質 0.85、スクショ（PNG）は PNG のまま長辺 2048px。転送中は上端バナー「送信中 n / N」、途中失敗は成功分だけ流し込んで「n 枚送れませんでした」。
+目印行: `UPLOAD start n=<選択枚数>` / `UPLOAD progress <i>/<N>` / `UPLOAD put <path> <bytes>` / `UPLOAD done n=<成功> failed=<失敗>` / `UPLOAD failed <reason>` / `UPLOAD typed <text>`。
+
+Claude Code の対話 TUI に `@/Users/.../x.jpg 質問` を 1 文字列で流し込んでもファイル補完に食われず、cwd 外の絶対パスでも許可プロンプトなしに `Read 1 file` して答える（auto mode で確認。2026-09-05）。
+
+### 自走検証（シミュレータ）
+
+`MOBILE_IDE_UPLOAD_FILE=<path>[,<path>]`（DEBUG）でホスト側のファイルを同じ経路で送る。`MOBILE_IDE_UPLOAD_AFTER=<秒>` で発火を遅らせられる（中継の切り替えを挟むため）。tmux セッションは `form`。
+
+```sh
+mise run boot && mise run install
+python3 scripts/verify-upload.py     # 5 シナリオ 7 項目（SUMMARY: 7 / 7 passed、約 3 分）。テスト画像は scripts/make-test-images.sh が /tmp に作る
+```
+
+- 1: JPEG 4000x3000 + PNG 1200x2600 → `UPLOAD put` のパスを `sips` で見ると 2048x1536 の JPEG と 945x2048 の PNG。`typed` は `@jpg @png ` の順で、`tmux capture-pane -t form` に見える
+- 2: 壊れたファイルを混ぜる → `done n=1 failed=1`、`typed` は 1 枚だけ。`/tmp/mobile-ide-upload-partial.png` にアラート
+- 3: `~/.claude/uploads/` を退避してから → 作られる。2 回目も通る（終わったら戻す）
+- 4: `ssh-proxy.py` 経由で接続 → `SIGUSR2`（新規接続だけ拒否）→ `UPLOAD_AFTER=6` の発火で `UPLOAD failed Connection refused`。`TERMINAL lost` は出ない。`/tmp/mobile-ide-upload-failed.png`
+- 5: `form` で `claude` を起動してから流し込み → 「この画像に何が写っているか一言で」→ 合成画像の内容（黄色地に赤い MOBILE IDE JPEG）を答える。**tmux サーバーが sshd 起動だと Not logged in で落ちる**（上のホストの節）
+- `scripts/verify-terminal.py` 6 / 6、`verify-reconnect.py` 8 / 8 も壊れていないこと
+
+### 実機（手で確認）
+
+- `mobile-ide` を開いて `claude` を起動 → 右上の写真ボタン → 写真 1 枚 → 「送信中 1 / 1」→ プロンプトに `@/Users/d0ne1s/.claude/uploads/….jpg ` → 「この画像を説明して」→ Claude が答える
+- スクショ 1 枚 → `.png` で入り、文字が読める答えが返る
+- 3 枚まとめて → `@a @b @c ` の順、バナーが 1 / 3 → 3 / 3
+- 機内モードで選ぶ → 「画像を送れませんでした」。解除後に選び直せ、端末は切れていない
+- `ls -lh ~/.claude/uploads/` で写真が 1MB 前後

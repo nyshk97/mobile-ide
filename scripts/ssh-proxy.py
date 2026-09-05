@@ -9,9 +9,11 @@ sshd や authorized_keys に触らずに「回線断」「無音の断」を起�
   SIGHUP   今ある接続を全部閉じる（listen は続ける）。TCP が切れる = アプリ側で回線断として見える
   SIGUSR1  凍結トグル。今ある接続の中継を両方向とも止める（ソケットは保つ）。無音の断の再現。
            凍結後に来た新しい接続は普通に中継する（再接続の試行を通すため）。もう一度で解除
+  SIGUSR2  新規接続の拒否トグル。listen を閉じるので新しい接続は connection refused、既存の接続はそのまま
+           （端末は生かしたままアップロード専用の接続だけ失敗させる）。もう一度で listen を再開
   SIGTERM  全部閉じて終了。再接続の試行が connection refused で失敗し続ける（バックオフの確認）
 
-stdout に `PROXY listening` / `PROXY open #n` / `PROXY close #n` / `PROXY drop-all` / `PROXY freeze on|off` を出す。
+stdout に `PROXY listening` / `PROXY open #n` / `PROXY close #n` / `PROXY drop-all` / `PROXY freeze on|off` / `PROXY reject on|off` を出す。
 """
 import asyncio
 import signal
@@ -93,18 +95,33 @@ class Proxy:
             self.frozen = set(self.connections.keys())
             self.log(f"freeze on ({len(self.frozen)})")
 
+    async def listen(self):
+        self.server = await asyncio.start_server(self.handle, "127.0.0.1", self.listen_port)
+        self.log(f"listening {self.listen_port} -> {self.target_host}:{self.target_port}")
+
+    def toggle_reject(self):
+        if self.server is not None:
+            self.server.close()  # 既存の接続は handle の中で生き続ける
+            self.server = None
+            self.log("reject on")
+        else:
+            asyncio.get_running_loop().create_task(self.listen())
+            self.log("reject off")
+
     async def run(self):
-        server = await asyncio.start_server(self.handle, "127.0.0.1", self.listen_port)
+        self.server = None
+        await self.listen()
         loop = asyncio.get_running_loop()
         stop = asyncio.Event()
         loop.add_signal_handler(signal.SIGHUP, self.drop_all)
         loop.add_signal_handler(signal.SIGUSR1, self.toggle_freeze)
+        loop.add_signal_handler(signal.SIGUSR2, self.toggle_reject)
         loop.add_signal_handler(signal.SIGTERM, stop.set)
         loop.add_signal_handler(signal.SIGINT, stop.set)
-        self.log(f"listening {self.listen_port} -> {self.target_host}:{self.target_port}")
-        async with server:
-            await stop.wait()
-            self.drop_all()
+        await stop.wait()
+        if self.server is not None:
+            self.server.close()
+        self.drop_all()
         self.log("exit")
 
 

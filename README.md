@@ -24,10 +24,10 @@ iPhone から Mac mini に接続し、tmux 上のターミナル・Claude Code�
 ```
 iPhone アプリ                          Mac mini
 ┌──────────────────────┐              ┌──────────────────────────┐
-│ SwiftTerm (端末画面)  │◄─ PTY ch ───►│ tmux attach -t <project> │
-│ プロジェクト一覧      │◄─ exec ch ──►│ cat projects.json 等      │
-│ 画像添付             │── SFTP ch ──►│ ~/.claude/uploads/       │
-│        ↑ Citadel (SSH client, 1 接続に複数チャネル)              │
+│ SwiftTerm (端末画面)  │◄─ SSH+PTY ──►│ tmux new-session -A -D    │
+│ プロジェクト一覧      │◄─ SSH+exec ─►│ cat projects.json 等      │
+│ 画像添付             │── SSH+SFTP ─►│ ~/.claude/uploads/       │
+│        ↑ Citadel (SSH client)。接続は用途ごとに張る               │
 └──────────┼───────────┘              └──────────────────────────┘
            │ Tailscale (WireGuard)。両端が 100.x.x.x を持つ
            ▼
@@ -36,14 +36,14 @@ iPhone アプリ                          Mac mini
 
 - **ネットワーク**: Tailscale。マンション一括回線でポート開放できない前提。iPhone 側は Tailscale アプリを VPN として入れるだけで、本アプリは何も知らない。導入済み（2026-09-05）。tailnet・マシン名・手順・罠は [docs/tailscale.md](docs/tailscale.md)
 - **トランスポート**: SSH（Mac mini のリモートログイン）。ed25519 鍵をアプリ内で生成し、公開鍵を `authorized_keys` に登録する。パスワード認証は切る
-- **SSH クライアント**: [Citadel](https://github.com/orlandos-nl/Citadel)（SwiftNIO SSH ベース。exec / PTY / SFTP を 1 接続で多重化）
+- **SSH クライアント**: [Citadel](https://github.com/orlandos-nl/Citadel)（SwiftNIO SSH ベース）。1 接続で多重化できるが、端末の接続は再接続で入れ替わるので、一覧の exec と画像の SFTP は用途ごとに短い接続を張って閉じる
 - **端末エミュレータ**: [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)。将来 libghostty の iOS ターゲットに差し替えられるよう protocol の裏に隠す
 - **セッション永続化**: tmux。SSH が切れても Mac mini 側でプロセスを生かす層。ユーザーに tmux のキーバインドは見せない（アプリが `tmux new-session -A` を流すだけ）
 - **プロジェクト一覧**: PolePole の `~/Library/Application Support/polepole/projects.json` を exec で読む。`tmux list-sessions` と突き合わせて作業中のものにマークを付ける
 
 ### Mac mini 側の前提
 
-- 自動ログイン有効（Claude Code の資格情報がログインキーチェーンにあるため。FileVault はオフになる）
+- 自動ログイン有効（Claude Code の資格情報がログインキーチェーンにあるため。FileVault はオフになる）。**tmux サーバーも GUI ログインセッションから起動しておく**（sshd から起動されたサーバーの中では Claude Code がキーチェーンを読めず Not logged in になる。launchd agent で `tmux start-server` + `exit-empty off`）
 - `pmset -a sleep 0 disksleep 0 autorestart 1`
 - リモートログイン有効 + 「リモートユーザーにフルディスクアクセスを許可」（dotfiles が `~/Library/CloudStorage/` 配下にあり、sshd から `.zshrc` を読むのに必要）
 - SSH の exec チャネルは `.zshrc` を読まないので、アプリ側で `PATH=/opt/homebrew/bin:...` を前置きしてからコマンドを流す。端末経路（tmux 内の対話シェル）は影響を受けない
@@ -59,7 +59,7 @@ iPhone アプリ                          Mac mini
 3. **セッションを開く**: タップで PTY チャネルを開き `tmux new-session -A -s <name> -c <path>` を流す。初回も 2 回目も同じコマンド
 4. **端末画面**: SwiftTerm 1 枚 + 端末の下に常駐するキーボードバー（Esc / Ctrl / Tab / Shift+Tab / Ctrl+C / `~ / - |` / 矢印 4 方向 / Enter / キーボード切替）。Ctrl はトグルで次の 1 キーに乗せる。日本語入力は確定後にだけ送る
 5. **再接続**: 回線断を検出したらバックオフ付きで黙って SSH を張り直し、同じ tmux セッションに attach し直す。フォアグラウンド復帰時と経路変更時（Wi-Fi ↔ モバイル回線）は短い exec で生存を探り、死んでいれば張り直す。attach は `tmux new-session -A -D` で、切れた前の自分などの他クライアントを detach する。tmux 内で exit した正常終了は自動では張り直さない
-6. **画像添付**: 写真ピッカーで選び、SFTP で `~/.claude/uploads/` に置き、`@<path> ` を端末に流し込む
+6. **画像添付**: 写真ピッカーで最大 4 枚選び、長辺 2048px に縮小（写真は JPEG、スクショは PNG のまま）して SFTP で `~/.claude/uploads/` に置き、`@<絶対パス> ` を端末に流し込む。途中で失敗しても成功分だけ流し込む
 
 ### 意図的に外すもの
 

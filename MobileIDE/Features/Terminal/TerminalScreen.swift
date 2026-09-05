@@ -12,6 +12,7 @@ struct TerminalScreen: View {
     @State private var session = PTYSession()
     @State private var surface: any TerminalSurface = SwiftTermSurface()
     @State private var network = NetworkPathObserver()
+    @State private var attachments = AttachmentFlow()
     @State private var wired = false
     @State private var didAutomate = false
     @State private var isControlArmed = false
@@ -21,11 +22,19 @@ struct TerminalScreen: View {
         VStack(spacing: 0) {
             TerminalSurfaceView(surface: surface)
                 .overlay { overlay }
-                .overlay(alignment: .top) { reconnectBanner }
+                .overlay(alignment: .top) { topBanner }
             KeyboardBar(isControlArmed: isControlArmed, isKeyboardVisible: isKeyboardVisible, perform: perform)
         }
         .navigationTitle(target.sessionName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                AttachmentButton(isBusy: attachments.isBusy) { datas in await attach(datas) }
+            }
+        }
+        .alert(item: $attachments.alert) { alert in
+            SwiftUI.Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("OK")))
+        }
         .onAppear(perform: wireUp)
         .onDisappear {
             network.stop()
@@ -93,10 +102,25 @@ struct TerminalScreen: View {
             fflush(stdout)
             session.verifyAlive()
         }
+        if let files = LaunchOptions.uploadFiles {
+            try? await Task.sleep(for: .seconds(LaunchOptions.uploadAfter))
+            let datas = files.compactMap { path -> Data? in
+                let data = FileManager.default.contents(atPath: path)
+                if data == nil { print("UPLOAD unreadable \(path)") }
+                return data
+            }
+            await attach(datas)
+        }
     }
 
+    /// 写真ピッカー / 自走の両方から。変換 → アップロード → 端末に流し込み
+    private func attach(_ datas: [Data]) async {
+        await attachments.send(datas: datas, session: session, settings: settings, identity: identity, knownHosts: knownHosts)
+    }
+
+    /// 上端のバナー。再接続中を優先し、次に画像の送信中
     @ViewBuilder
-    private var reconnectBanner: some View {
+    private var topBanner: some View {
         if case .reconnecting(let attempt) = session.state {
             HStack(spacing: 10) {
                 ProgressView()
@@ -107,6 +131,19 @@ struct TerminalScreen: View {
                     .font(.footnote.weight(.semibold))
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.bar)
+            .overlay(alignment: .bottom) { Divider() }
+            .transition(.move(edge: .top).combined(with: .opacity))
+        } else if let progress = attachments.progress {
+            HStack(spacing: 10) {
+                ProgressView(value: progress.fraction)
+                    .frame(width: 80)
+                Text("送信中 \(progress.index) / \(progress.total)")
+                    .font(.footnote)
+                Spacer()
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
