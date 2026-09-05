@@ -10,13 +10,13 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
     private(set) var currentSize: TerminalSize?
     var onInput: ((Data) -> Void)?
     var onResize: ((TerminalSize) -> Void)?
+    private var isTornDown = false
 
     var view: UIView { terminalView }
 
-    /// SwiftTerm 1.20 は Terminal（applicationCursor）を public に出していないので、
-    /// ホストからの出力に含まれる DECCKM（`ESC [ ? 1 h` / `ESC [ ? 1 l`）を自前で追跡する
-    private(set) var usesApplicationCursorKeys = false
-    private var feedTail: [UInt8] = []
+    /// DECCKM はエミュレータ自身の状態を読む（`getTerminal()` と `Terminal.applicationCursor` は public。
+    /// `feed` は同期にパースするので feed 直後に最新）。RIS（`ESC c`）などで戻る経路も自動で追従する
+    var usesApplicationCursorKeys: Bool { terminalView.getTerminal().applicationCursor }
 
     override init() {
         terminalView = TerminalView(frame: .zero, font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular))
@@ -28,8 +28,28 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
         terminalView.inputAccessoryView = nil
     }
 
+    #if DEBUG
+    deinit {
+        print("TERMINAL surface deinit \(LaunchOptions.objectID(self))")
+        fflush(stdout)
+    }
+    #endif
+
+    func tearDown() {
+        isTornDown = true
+        onInput = nil
+        onResize = nil
+        _ = terminalView.resignFirstResponder()
+        terminalView.updateUiClosed()
+    }
+
     func feed(_ bytes: ArraySlice<UInt8>) {
-        trackCursorKeyMode(bytes)
+        // tearDown 後は描画タイマーが止まっているので捨てる（onOutput は画面側で外しているが、契約として守る）
+        guard !isTornDown else {
+            print("TERMINAL surface fed after tearDown \(LaunchOptions.objectID(self))")
+            fflush(stdout)
+            return
+        }
         terminalView.feed(byteArray: bytes)
     }
 
@@ -47,23 +67,6 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
 
     func hideKeyboard() {
         _ = terminalView.resignFirstResponder()
-    }
-
-    /// `ESC [ ? 1 h`（オン）/ `ESC [ ? 1 l`（オフ）を探す。チャンク境界をまたぐ分は直前の末尾を持ち越す
-    private func trackCursorKeyMode(_ bytes: ArraySlice<UInt8>) {
-        let on: [UInt8] = [0x1b, 0x5b, 0x3f, 0x31, 0x68]
-        let off: [UInt8] = [0x1b, 0x5b, 0x3f, 0x31, 0x6c]
-        let buffer = feedTail + Array(bytes)
-        var i = 0
-        while i + on.count <= buffer.count {
-            if buffer[i] == 0x1b {
-                let slice = Array(buffer[i ..< i + on.count])
-                if slice == on { usesApplicationCursorKeys = true; i += on.count; continue }
-                if slice == off { usesApplicationCursorKeys = false; i += off.count; continue }
-            }
-            i += 1
-        }
-        feedTail = Array(buffer.suffix(on.count - 1))
     }
 }
 

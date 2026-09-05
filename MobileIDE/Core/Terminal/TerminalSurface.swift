@@ -23,6 +23,9 @@ protocol TerminalSurface: AnyObject {
     var onResize: ((TerminalSize) -> Void)? { get set }
     /// ホストからの出力を描画に流す
     func feed(_ bytes: ArraySlice<UInt8>)
+    /// 画面を閉じるとき 1 回。エミュレータの描画タイマーを止め、クロージャを外す。以後 feed は捨てられ、再開もできない
+    /// （SwiftTerm は `CADisplayLink(target: self)` で view 自身を握るので、呼ばないと view が解放されない）
+    func tearDown()
 
     // --- キーボードバーからの入力 ---
 

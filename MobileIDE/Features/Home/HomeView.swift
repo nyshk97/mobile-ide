@@ -15,7 +15,7 @@ struct HomeView: View {
     /// 自走検証（MOBILE_IDE_TERMINAL_AUTORUN / MOBILE_IDE_CONNECTION_TEST）のときは該当画面を最初から開く
     @State private var path: [Route] = LaunchOptions.terminalAutorun ? [.terminal(.mobileIDE)]
         : LaunchOptions.connectionTest ? [.settings] : []
-    @State private var didAutoOpen = false
+    @State private var autoOpenCount = 0
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -124,9 +124,9 @@ struct HomeView: View {
     private func refresh() async {
         await model.refresh(settings: settings, identity: identity, knownHosts: knownHosts)
         // 自走検証: MOBILE_IDE_OPEN_PROJECT=<sessionName> の行を自動で開く
-        if !didAutoOpen, let name = LaunchOptions.openProject,
+        if autoOpenCount < LaunchOptions.openProjectTimes, let name = LaunchOptions.openProject,
            let row = model.allRows.first(where: { $0.sessionName == name }) {
-            didAutoOpen = true
+            autoOpenCount += 1
             path.append(.terminal(row.target))
         }
     }

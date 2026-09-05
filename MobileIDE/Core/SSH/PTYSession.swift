@@ -66,6 +66,17 @@ final class PTYSession {
     private var sleeping = false
     /// 生存判定を 1 本に絞る
     private var probing = false
+    /// バックグラウンドに入った時刻。復帰後の最初の `verifyAlive()` で読む
+    private var backgroundedAt: ContinuousClock.Instant?
+    /// バックグラウンド中か。この間は `verifyAlive()` を何もしない（経路変更で呼ばれても探らず、記録も消費しない）
+    private var inBackground = false
+
+    #if DEBUG
+    deinit {
+        print("TERMINAL session deinit \(LaunchOptions.objectID(self))")
+        fflush(stdout)
+    }
+    #endif
 
     /// - Parameters:
     ///   - connect: `SSHConnection.connect` を包んだクロージャ。失敗は `ConnectFailure` で投げる
@@ -119,14 +130,43 @@ final class PTYSession {
         launchAttempt(reconnectAttempt: attempt, delayed: false)
     }
 
+    /// 画面がバックグラウンドに入った（scenePhase）。`at` は検証用に過去の時刻を渡すため
+    func enterBackground(at instant: ContinuousClock.Instant = .now) {
+        backgroundedAt = instant
+        inBackground = true
+    }
+
+    /// フォアグラウンドに戻った（scenePhase）。記録を消費する `verifyAlive()` まで一続きで行う
+    /// （分けると `inBackground == false` のまま記録が残り、後の経路変更が生きている接続を古い記録で切る）
+    func enterForeground() {
+        inBackground = false
+        if let backgroundedAt {
+            print("TERMINAL resume background=\(Int((ContinuousClock.now - backgroundedAt).components.seconds))s")
+            fflush(stdout)
+        }
+        verifyAlive()
+    }
+
     /// フォアグラウンド復帰・経路変更の契機で「まだ生きているか」を探る。
     /// `running` なら同じ接続で `true` を exec し、締め切りまでに返らなければ回線断として張り直す。
+    /// ただしバックグラウンドに `ReconnectPolicy.staleAfterBackground` より長くいた直後なら、探らずに張り直す
+    /// （サーバー側は ClientAlive で切っているはずで、RST が届かない Tailscale 経由では probe の 3 秒を丸ごと待つことになる）。
     /// `reconnecting` の遅延待ちなら即座に試す。それ以外は何もしない
     func verifyAlive() {
+        // バックグラウンド中の経路変更で呼ばれても何もしない（探ると probing が立ったまま suspend し、記録も 0 秒として消える）
+        guard !inBackground else { return }
+        // 入口で読み捨てる。`.reconnecting` 経路に行ったときに残ると、後で生きている接続を古い記録で切ってしまう
+        let sinceBackground = backgroundedAt.map { ContinuousClock.now - $0 }
+        backgroundedAt = nil
         switch state {
         case .running: break
         case .reconnecting: retryNow(); return
         default: return
+        }
+        // probing の guard より先。経路変更（NWPathMonitor）と scenePhase のどちらが先に呼んでも効くように
+        if let sinceBackground, sinceBackground > ReconnectPolicy.staleAfterBackground {
+            lost("stale after background \(Int(sinceBackground.components.seconds))s", immediate: true)
+            return
         }
         guard !probing, let client else { return }
         probing = true

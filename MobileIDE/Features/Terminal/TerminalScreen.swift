@@ -8,6 +8,7 @@ struct TerminalScreen: View {
     @Environment(SSHIdentity.self) private var identity
     @Environment(KnownHostStore.self) private var knownHosts
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dismiss) private var dismiss
 
     @State private var session = PTYSession()
     @State private var surface: any TerminalSurface = SwiftTermSurface()
@@ -16,6 +17,12 @@ struct TerminalScreen: View {
     @State private var wired = false
     @State private var didAutomate = false
     @State private var isKeyboardVisible = false
+    #if DEBUG
+    /// 直前に閉じた画面の端末 view。UIKit のキーボードは最後の first responder を 1 個だけ握り続けるので、
+    /// 「1 つ前の view が解放されたか」で有界であることを見る（`MOBILE_IDE_OPEN_TIMES=2`）
+    private static weak var lastClosedView: UIView?
+    private static var closeCount = 0
+    #endif
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,8 +43,31 @@ struct TerminalScreen: View {
         }
         .onAppear(perform: wireUp)
         .onDisappear {
+            // wireUp のクロージャは View 構造体（= @State の箱）を捕まえるので、外さないと session ⇄ surface の循環で両方が残る
+            network.onChange = nil
             network.stop()
+            session.onOutput = nil
             session.close()
+            surface.tearDown()
+            #if DEBUG
+            // 端末 view が解放されたか。current はキーボードを出した後だと UIKit が最後の first responder として握るので false になる。
+            // previous（1 つ前に閉じた画面の view）が true なら、握られるのは 1 個だけで積み上がらない。解放は遅れることがあるので最大 5 秒待つ
+            weak var view: UIView? = surface.view
+            weak var previous: UIView? = Self.lastClosedView
+            let hasPrevious = Self.closeCount > 0
+            Self.lastClosedView = view
+            Self.closeCount += 1
+            Task {
+                // 見たいのは初回なら current、2 回目以降なら previous（current はキーボードが握るので待っても解放されない）
+                var waited = 0.0
+                while waited < 5, hasPrevious ? previous != nil : view != nil {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    waited += 0.5
+                }
+                print("TERMINAL view released current=\(view == nil) previous=\(hasPrevious ? String(previous == nil) : "none") after=\(waited)s")
+                fflush(stdout)
+            }
+            #endif
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             isKeyboardVisible = true
@@ -46,8 +76,19 @@ struct TerminalScreen: View {
             isKeyboardVisible = false
         }
         .onChange(of: scenePhase) { _, phase in
-            // 別アプリから戻った・ロック解除した。バックグラウンドでソケットが止められていたかもしれない
-            if phase == .active { session.verifyAlive() }
+            switch phase {
+            case .background:
+                print("TERMINAL background")
+                fflush(stdout)
+                session.enterBackground()
+            case .active:
+                // 別アプリから戻った・ロック解除した。バックグラウンドでソケットが止められていたかもしれない
+                print("TERMINAL foreground")
+                fflush(stdout)
+                session.enterForeground()  // 記録の消費と生存判定まで一続き
+            default:
+                break
+            }
         }
         .onChange(of: session.state) { _, newState in
             guard newState == .running, !didAutomate else { return }
@@ -100,6 +141,14 @@ struct TerminalScreen: View {
             fflush(stdout)
             session.verifyAlive()
         }
+        if let resume = LaunchOptions.resumeAfter {
+            try? await Task.sleep(for: .seconds(resume.wait))
+            // 本番の scenePhase と同じ順（background → foreground）
+            session.enterBackground(at: .now - .seconds(resume.background))
+            print("TERMINAL resume simulated background=\(Int(resume.background))s")
+            fflush(stdout)
+            session.enterForeground()
+        }
         if let files = LaunchOptions.uploadFiles {
             try? await Task.sleep(for: .seconds(LaunchOptions.uploadAfter))
             let datas = files.compactMap { path -> Data? in
@@ -108,6 +157,12 @@ struct TerminalScreen: View {
                 return data
             }
             await attach(datas)
+        }
+        if let seconds = LaunchOptions.closeAfter {
+            try? await Task.sleep(for: .seconds(seconds))
+            print("TERMINAL closing")
+            fflush(stdout)
+            dismiss()
         }
     }
 
@@ -213,6 +268,10 @@ struct TerminalScreen: View {
     private func wireUp() {
         guard !wired else { return }
         wired = true
+        #if DEBUG
+        print("TERMINAL wired surface=\(LaunchOptions.objectID(surface)) session=\(LaunchOptions.objectID(session))")
+        fflush(stdout)
+        #endif
         surface.onInput = { data in session.send(data) }
         surface.onResize = { size in
             if session.state == .idle {

@@ -38,4 +38,9 @@ final class ReconnectPolicyTests: XCTestCase {
     func testProbeTimeoutIsShort() {
         XCTAssertEqual(ReconnectPolicy.probeTimeout, .seconds(3))
     }
+
+    /// sshd の ClientAliveInterval 15 × (CountMax 3 + 1)。scripts/host-setup.sh の値と対で見る
+    func testStaleAfterBackgroundMatchesClientAlive() {
+        XCTAssertEqual(ReconnectPolicy.staleAfterBackground, .seconds(15 * (3 + 1)))
+    }
 }

@@ -9,9 +9,16 @@ import Foundation
 /// - `MOBILE_IDE_PRESS_KEYS=tab,enter,claude,gpull,/dig,keyboard`（DEBUG のみ）: 端末接続後、キーボードバーの操作を順に再現する。
 ///   `TerminalKey` の名前（バーに無い esc 等も可）、ショートカット（`claude` / `codex` / `gpull` / `gpush` / `/` 始まり）、`keyboard`
 /// - `MOBILE_IDE_PROBE_AFTER=<秒>`（DEBUG のみ）: 端末接続の N 秒後に生存判定（フォアグラウンド復帰と同じ経路）を呼ぶ。
-///   シミュレータでは scenePhase を外から起こせないため
+///   背面に回す経路自体は `xcrun simctl launch booted com.apple.Preferences` → `simctl launch booted <bundle>` で再現できるが、
+///   起動オプションのほうが速くて安定するので自走ではこちらを使う
+/// - `MOBILE_IDE_RESUME_AFTER=<待ち秒>,<バックグラウンドにいたことにする秒>`（DEBUG のみ）: 端末接続の N 秒後に「M 秒前にバックグラウンドへ
+///   入っていた」ことにして復帰（`verifyAlive()`）を呼ぶ。M が閾値を超えていれば probe せず即再接続する経路を見る
 /// - `MOBILE_IDE_UPLOAD_FILE=<path>[,<path>…]`（DEBUG のみ）: 端末接続後、ホスト側のそのファイルを画像添付と同じ経路
 ///   （変換 → SFTP → `@path ` の流し込み）で送る。`MOBILE_IDE_UPLOAD_AFTER=<秒>`（既定 0）で発火を遅らせる
+/// - `MOBILE_IDE_CLOSE_AFTER=<秒>`（DEBUG のみ）: 端末接続の N 秒後に端末画面を閉じる（一覧に戻る）。閉じたときに
+///   `TERMINAL surface deinit` / `TERMINAL session deinit` / `TERMINAL view released` が出ることでリークしていないことを見る。
+///   `MOBILE_IDE_OPEN_TIMES=<回>`（DEBUG のみ、既定 1）で `MOBILE_IDE_OPEN_PROJECT` の自動オープンを閉じるたびに繰り返す
+///   （端末 view は UIKit のキーボードが最後の first responder として 1 個だけ握るので、2 回目の close で 1 回目の view が解放されたかを見る）
 /// - `MOBILE_IDE_CONNECTION_TEST=1`: 起動直後に設定画面を開いて接続テストを実行する
 /// - `MOBILE_IDE_HOST` / `MOBILE_IDE_PORT` / `MOBILE_IDE_USER`: 接続設定を上書き（保存はしない）
 /// - `MOBILE_IDE_SAVE_SETTINGS=1`（DEBUG のみ）: 上書き値を UserDefaults にも保存する。手入力と同じ保存経路（setter → didSet）を自走検証・焼き込みに使う
@@ -19,6 +26,11 @@ import Foundation
 ///   TOFU の不一致経路を外から起こすため（シミュレータの UserDefaults は外から安全に書き換えられない）
 enum LaunchOptions {
     private static let env = ProcessInfo.processInfo.environment
+
+    /// 目印行に載せる個体の識別子（ポインタ）。`@State` の初期値は捨てられることがあり、配線された個体と deinit した個体を突き合わせるのに使う
+    static func objectID(_ object: AnyObject) -> String {
+        "\(Unmanaged.passUnretained(object).toOpaque())"
+    }
 
     static var terminalAutorun: Bool { env["MOBILE_IDE_TERMINAL_AUTORUN"] == "1" }
     static var terminalTextToType: String? {
@@ -39,10 +51,27 @@ enum LaunchOptions {
         return nil
         #endif
     }
+    static var resumeAfter: (wait: Double, background: Double)? {
+        #if DEBUG
+        guard let value = env["MOBILE_IDE_RESUME_AFTER"] else { return nil }
+        let parts = value.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard parts.count == 2 else { return nil }
+        return (parts[0], parts[1])
+        #else
+        return nil
+        #endif
+    }
     static var uploadFiles: [String]? {
         #if DEBUG
         guard let value = env["MOBILE_IDE_UPLOAD_FILE"], !value.isEmpty else { return nil }
         return value.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+        #else
+        return nil
+        #endif
+    }
+    static var closeAfter: Double? {
+        #if DEBUG
+        return env["MOBILE_IDE_CLOSE_AFTER"].flatMap(Double.init)
         #else
         return nil
         #endif
@@ -55,6 +84,13 @@ enum LaunchOptions {
         #endif
     }
     static var openProject: String? { env["MOBILE_IDE_OPEN_PROJECT"].flatMap { $0.isEmpty ? nil : $0 } }
+    static var openProjectTimes: Int {
+        #if DEBUG
+        return env["MOBILE_IDE_OPEN_TIMES"].flatMap(Int.init) ?? 1
+        #else
+        return 1
+        #endif
+    }
     static var connectionTest: Bool { env["MOBILE_IDE_CONNECTION_TEST"] == "1" }
     static var hostOverride: String? { env["MOBILE_IDE_HOST"] }
     static var portOverride: Int? { env["MOBILE_IDE_PORT"].flatMap(Int.init) }

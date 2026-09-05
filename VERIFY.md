@@ -275,7 +275,7 @@ python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOB
 
 端末の下に常駐するバー。並びは `[Claude] [Codex] [git ▾] [/ ▾] | tab ^C | ← ↓ ↑ → ⏎ | キーボード切替`（#13 で esc / ctrl / ⇧tab / `~ / - |` を落とし、起動系を足した）。SwiftTerm 標準のアクセサリは外している。
 起動系（Claude = `claude --dangerously-skip-permissions`、Codex = `codex -a never -s danger-full-access`、git メニューの `gpull` / `gpush`）は Enter まで送る。スラッシュメニュー（`/` `/dig` … `/resume`、issue #13 の順）は文字列だけ流し、`/` 以外は末尾に空白を付ける（補完リストを閉じる。Enter は送らない）。定義は `Core/Terminal/Shortcut.swift` の 1 か所。
-矢印は DECCKM（`ESC [ ? 1 h/l`）を出力から追跡して `ESC [ A` / `ESC O A` を切り替える。
+矢印は DECCKM（アプリケーションカーソルモード）で `ESC [ A` / `ESC O A` を切り替える。モードは SwiftTerm 自身の状態（`getTerminal().applicationCursor`）を読む。RIS（`ESC c`）で戻る経路やチャンク境界は tmux 越しでは見えないので `SwiftTermSurfaceTests` が surface に直接 feed して見る（`mise run test`）。
 
 ### 自走検証（シミュレータ）
 
@@ -296,6 +296,8 @@ ps -axo args | grep '^codex '    # `codex -a never -s danger-full-access`（フ�
 $T send-keys -t form C-c; sleep 1; $T send-keys -t form C-c; $T kill-session -t form
 python3 scripts/console-run.py "${CONN[@]}" --env 'MOBILE_IDE_TERMINAL_TYPE=printf "\\e[?1h"; cat -v\n' --env MOBILE_IDE_PRESS_KEYS=up,enter,ctrlC --until "KEYS done" --keep
 $T capture-pane -p -t form       # `^[OA`（DECCKM オンで矢印がアプリケーション列になる）
+python3 scripts/console-run.py "${CONN[@]}" --env 'MOBILE_IDE_TERMINAL_TYPE=printf "\\e[?1l"; cat -v\n' --env MOBILE_IDE_PRESS_KEYS=up,enter,ctrlC --until "KEYS done" --keep
+$T capture-pane -p -t form       # `^[[A`（オフ）。`KEYS pressed up appCursor=` は true のままでよい（tmux は自分のクライアントには ZLE の smkx に従ったモードを出し、ペインへは自分で正しい列に再送する）
 python3 scripts/console-run.py "${CONN[@]}" --env MOBILE_IDE_PRESS_KEYS=keyboard --until "KEYS done" --keep
                                  # TERMINAL size の rows が増える（キーボードが閉じて端末が伸びる）。$T list-clients の高さも追従
 mise run shot                    # バーが端末の下にあり、左から Claude（オレンジ）/ Codex / git / `/` のマーク、区切り、tab ^C、区切り、矢印。SwiftTerm 標準の esc / ctrl / tab（灰色）が出ていない
@@ -330,7 +332,7 @@ sshd と authorized_keys には触らず、`scripts/ssh-proxy.py`（127.0.0.1:22
 
 ```sh
 mise run boot && mise run install
-python3 scripts/verify-reconnect.py      # 5 シナリオ 8 項目（SUMMARY: 8 / 8 passed、約 3 分）。tmux セッション form を作って途中で kill する
+python3 scripts/verify-reconnect.py      # 8 シナリオ 13 項目（SUMMARY: 13 / 13 passed、約 5 分）。tmux セッション form を作って途中で kill する
 ```
 
 - 1: SIGHUP → `lost connection closed` → `reconnecting attempt=1 delay=1` → `connected`。`session_created` が同じで、クライアントは断の後に作られた 1 件
@@ -338,9 +340,12 @@ python3 scripts/verify-reconnect.py      # 5 シナリオ 8 項目（SUMMARY: 8 
 - 3: `MOBILE_IDE_PROBE_AFTER=6` + 凍結 → `probe start` の 3 秒後に `probe dead` → `reconnecting attempt=1 delay=0` → `connected`。凍結中は古い tmux クライアントが残っているので、再接続後に 1 件になれば `-D` が効いている証明
 - 4: 凍結なし → `probe ok` だけで `reconnecting` / `lost` が出ない
 - 5: `tmux kill-session` → `disconnected shell exited` で止まる。`/tmp/mobile-ide-exited.png` に全面オーバーレイ
+- 6: `MOBILE_IDE_CLOSE_AFTER=3` + `MOBILE_IDE_OPEN_TIMES=2` で 2 回開閉 → `TERMINAL wired surface=<id> session=<id>` と同じ id の `surface deinit` / `session deinit` が 2 回分出る。`TERMINAL view released current=… previous=…` は 2 回目で `previous=true`（端末 view は UIKit のキーボードが最後の first responder として 1 個だけ握るので `current` は false になる。1 つ前が解放されていれば積み上がらない）。閉じ方は `onDisappear` でクロージャを外して `surface.tearDown()`（SwiftTerm の `updateUiClosed()`）
+- 7: `MOBILE_IDE_RESUME_AFTER=5,90`（接続 5 秒後に「90 秒バックグラウンドにいた」ことにして復帰）→ `TERMINAL lost stale after background 90s` → `reconnecting attempt=1 delay=0` → `connected`。`probe` の行が無く、`list-clients` は `-D` で新しい 1 件。閾値は `ReconnectPolicy.staleAfterBackground`（60 秒 = sshd の ClientAliveInterval 15 × (CountMax 3 + 1)。`scripts/host-setup.sh` の値と対）
+- 8: `MOBILE_IDE_RESUME_AFTER=5,10` → `probe ok` だけで `lost` / `reconnecting` が無い
 - 検証は `MOBILE_IDE_OPEN_PROJECT=form` で `form` セッションを使う（`MOBILE_IDE_VERIFY_PROJECT` で変更可）。**`mobile-ide` を使うと実機 iPhone が同じセッションに attach しているときに `-D` で蹴り合い、クライアント数の判定が狂う**（2026-09-04 に実例: 幅 57 桁の実機クライアントが混ざった）
 - `scripts/verify-terminal.py` の 6 項目も通ること（`-D` を足しても端末の基本が壊れていない）
-- scenePhase はシミュレータから起こせないので `MOBILE_IDE_PROBE_AFTER`（DEBUG）で同じ経路を呼ぶ。scenePhase と経路変更の配線は実機で見る
+- 自走では `MOBILE_IDE_PROBE_AFTER` / `MOBILE_IDE_RESUME_AFTER`（DEBUG）で復帰と同じ経路を直接呼ぶ（速くて安定する）。背面に回す経路自体はシミュレータでも `xcrun simctl launch booted com.apple.Preferences`（背面へ）→ `xcrun simctl launch booted com.d0ne1s.mobileide`（前面へ）で再現でき、`TERMINAL background` → `foreground` → `resume background=2s` → `probe ok` が出る（2026-09-05 に実測。シナリオ化は未着手）。経路変更の配線は実機で見る
 
 ### 実機
 
@@ -357,7 +362,8 @@ kill -STOP $PID   # 無音の断: iPhone で別アプリに切り替えて戻る
 
 - モバイル回線 ↔ Wi-Fi を切り替える。Tailscale（WireGuard）が経路を引き継ぐので **SSH 接続は切れずそのまま打てる**のが正常（`Tailscale status` の iPhone の endpoint が公衆 IP ↔ 192.168.x に変わるのに `netstat` の接続が同じ）。バナーが一瞬出て続きに戻るのも OK
 - 端末を開いたまま Wi-Fi をオフ → 数秒後オン。バナーが出て、同じ tmux セッションの続きが表示される（`claude` を起動しておくと分かりやすい）
-- 別アプリに切り替えて 1 分以上置いて戻る。生きていれば何も出ない、切れていればバナー → 続きが表示される
+- 別アプリに切り替えて 60 秒以上置いて戻る → 探らずに張り直すので、バナーが一瞬出てすぐ続きが表示される（`TERMINAL background` → `foreground` → `resume background=Ns` → `lost stale after background Ns` → `reconnecting attempt=1 delay=0` → `connected`。復帰から 1 秒台）。10 秒程度で戻ると `probe ok` だけで何も出ない
+- 復帰の秒数を測るときは `console-run.py --device <id> … --until NEVERMATCH --timeout 900 --keep` でログを流し、iPhone は USB で繋ぐ（Wi-Fi 経由の devicectl はモバイル回線の回で途切れる）。起点は直前に `TERMINAL background` が出ている `foreground` だけ（通知センターの往復でも `foreground` は出る）。モバイル回線の回は Wi-Fi を切って経路変更の probe が落ち着いてからホームに戻す
 - 機内モードを 2 分入れて戻す → 自動で戻る。機内モード中に「今すぐ」を押しても多重にならない（バナーの回数が 1 つずつ進む）
 - tmux 内で `exit` → 「セッションを抜けました」で止まり、勝手に作り直されない。「再接続」で新しいセッションが開く
 - Mac 側で `tmux attach -t <同じセッション>` してから iPhone で再接続 → Mac 側が detach される（`-D`）
@@ -383,7 +389,7 @@ python3 scripts/verify-upload.py     # 5 シナリオ 7 項目（SUMMARY: 7 / 7 
 - 3: `~/.claude/uploads/` を退避してから → 作られる。2 回目も通る（終わったら戻す）
 - 4: `ssh-proxy.py` 経由で接続 → `SIGUSR2`（新規接続だけ拒否）→ `UPLOAD_AFTER=6` の発火で `UPLOAD failed Connection refused`。`TERMINAL lost` は出ない。`/tmp/mobile-ide-upload-failed.png`
 - 5: `form` で `claude` を起動してから流し込み → 「この画像に何が写っているか一言で」→ 合成画像の内容（黄色地に赤い MOBILE IDE JPEG）を答える。**tmux サーバーが sshd 起動だと Not logged in で落ちる**（上のホストの節）
-- `scripts/verify-terminal.py` 6 / 6、`verify-reconnect.py` 8 / 8 も壊れていないこと
+- `scripts/verify-terminal.py` 6 / 6、`verify-reconnect.py` 13 / 13 も壊れていないこと
 
 ### 実機（手で確認）
 

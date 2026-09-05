@@ -14,10 +14,14 @@ tmux セッションは MOBILE_IDE_VERIFY_PROJECT（既定 `form`。PolePole の
   3. 無音の断（中継を凍結）→ 生存判定が 3 秒で死を検出し即時再接続。古いクライアントは -D で蹴られる
   4. 生きていれば生存判定は何もしない（再接続が走らない）
   5. シェルの exit（tmux セッションを kill）は自動再接続しない
+  6. 端末画面を閉じると PTYSession / SwiftTermSurface が解放され、端末 view はキーボードが握る 1 個だけ（2 回開閉して見る）
+  7. バックグラウンドに 90 秒いた復帰（MOBILE_IDE_RESUME_AFTER で再現）は probe せず即再接続。古いクライアントは -D で蹴られる
+  8. バックグラウンドに 10 秒いた復帰は probe ok だけで再接続しない
 
 スクリーンショット: /tmp/mobile-ide-reconnecting.png（バナー）, /tmp/mobile-ide-exited.png（全面オーバーレイ）
 """
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -236,6 +240,57 @@ shot("exited.png")
 check("5 セッション終了は shellExited で止まり、再接続が走らない",
       ok and app.has("TERMINAL disconnected shell exited") and not app.has("reconnecting") and not app.has("TERMINAL lost"),
       f"lines={app.terminal_lines()[-3:]}")
+
+# ---- 6. 閉じたら解放される（配線した個体の deinit と、1 つ前の端末 view の解放）------------------------
+# 端末 view は UIKit のキーボードが最後の first responder として 1 個だけ握るので、2 回開閉して「1 つ前の view が解放された」を見る
+app.stop()
+app = App("s6", extra_env=["MOBILE_IDE_CLOSE_AFTER=3", "MOBILE_IDE_OPEN_TIMES=2"])
+app.wait("TERMINAL wired", count=2, timeout=90)
+ok = app.wait("TERMINAL view released", count=2, timeout=30)
+time.sleep(1)
+wired = [re.search(r"surface=(0x[0-9a-f]+) session=(0x[0-9a-f]+)", l) for l in app.terminal_lines() if "TERMINAL wired" in l]
+surfaces = [m.group(1) for m in wired if m]
+sessions = [m.group(2) for m in wired if m]
+deinit_ok = (all(app.has(f"surface deinit {i}") for i in surfaces) and all(app.has(f"session deinit {i}") for i in sessions)
+             and not app.has("after tearDown"))
+released = [l for l in app.terminal_lines() if "TERMINAL view released" in l]
+check("6a 閉じると配線した surface / session（2 回分）が deinit する（tearDown 後の再利用や feed も無い）",
+      ok and len(surfaces) == 2 and len(sessions) == 2 and deinit_ok,
+      f"surfaces={surfaces} sessions={sessions} deinit_lines={[l for l in app.terminal_lines() if 'deinit' in l]}")
+check("6b 端末 view はキーボードが握る 1 個だけで、1 つ前の view は解放される",
+      len(released) == 2 and "previous=true" in released[1],
+      f"released={released}")
+
+# ---- 7. 復帰・経過 90 秒 → 探らず即再接続 --------------------------------------------------------
+app.stop()
+app = App("s7", extra_env=["MOBILE_IDE_RESUME_AFTER=5,90"])
+app.wait("TERMINAL connected", timeout=60)
+time.sleep(4)
+c0 = clients()
+t_sim = app.wait("TERMINAL resume simulated", timeout=20)
+ok = app.wait("TERMINAL connected", count=2, timeout=30)
+time.sleep(3)
+lines = app.terminal_lines()
+check("7a 90 秒バックグラウンドにいた復帰は probe せず stale として遅延なしで張り直す",
+      t_sim and ok and app.has("TERMINAL lost stale after background 90s") and app.has("reconnecting attempt=1 delay=0")
+      and not any("probe" in l for l in lines) and ok - t_sim <= 3,
+      f"sim→connected={round(ok - t_sim, 1) if t_sim and ok else None}s lines={lines[-4:]}")
+check("7b 古い自分は -D で蹴られ、クライアントは新しい 1 件",
+      len(c0) == 1 and len(clients()) == 1 and int(clients()[0][0]) > int(c0[0][0]),
+      f"before={c0} after={clients()}")
+
+# ---- 8. 復帰・経過 10 秒 → probe ok だけ -----------------------------------------------------------
+app.stop()
+app = App("s8", extra_env=["MOBILE_IDE_RESUME_AFTER=5,10"])
+app.wait("TERMINAL connected", timeout=60)
+time.sleep(4)
+c0 = clients()
+app.wait("TERMINAL resume simulated", timeout=20)
+ok = app.wait("TERMINAL probe ok", timeout=15)
+time.sleep(2)
+check("8 10 秒の復帰は probe ok だけで再接続しない",
+      ok and len(c0) == 1 and not app.has("reconnecting") and not app.has("TERMINAL lost") and clients() == c0,
+      f"lines={app.terminal_lines()[-3:]} clients={clients()}")
 
 app.stop()
 proxy.stop()
