@@ -21,10 +21,15 @@ final class TerminalTargetTests: XCTestCase {
         XCTAssertEqual(TerminalTarget.shellEscape("/x/a~b"), "/x/a\\~b")
     }
 
-    func testLaunchCommandDetachesOtherClients() {
+    func testLaunchCommandDetachesOtherClientsAndEnablesMouse() {
         let target = TerminalTarget(sessionName: "my-project", workingDirectory: "/Users/x/My Project")
-        XCTAssertEqual(target.launchCommand, "tmux new-session -A -D -s my-project -c /Users/x/My\\ Project; exit")
-        XCTAssertEqual(TerminalTarget.mobileIDE.launchCommand, "tmux new-session -A -D -s mobile-ide -c ~/mobile-ide; exit")
+        let mouse = " \\; set-option mouse on"
+            + " \\; bind-key -T copy-mode WheelUpPane select-pane '\\;' send-keys -X -N 1 scroll-up"
+            + " \\; bind-key -T copy-mode WheelDownPane select-pane '\\;' send-keys -X -N 1 scroll-down"
+            + " \\; bind-key -T copy-mode-vi WheelUpPane select-pane '\\;' send-keys -X -N 1 scroll-up"
+            + " \\; bind-key -T copy-mode-vi WheelDownPane select-pane '\\;' send-keys -X -N 1 scroll-down"
+        XCTAssertEqual(target.launchCommand, "tmux new-session -A -D -s my-project -c /Users/x/My\\ Project" + mouse + "; exit")
+        XCTAssertEqual(TerminalTarget.mobileIDE.launchCommand, "tmux new-session -A -D -s mobile-ide -c ~/mobile-ide" + mouse + "; exit")
     }
 }
 

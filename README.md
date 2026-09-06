@@ -37,8 +37,8 @@ iPhone アプリ                          Mac mini
 - **ネットワーク**: Tailscale。マンション一括回線でポート開放できない前提。iPhone 側は Tailscale アプリを VPN として入れるだけで、本アプリは何も知らない。導入済み（2026-09-05）。tailnet・マシン名・手順・罠は [docs/tailscale.md](docs/tailscale.md)
 - **トランスポート**: SSH（Mac mini のリモートログイン）。ed25519 鍵をアプリ内で生成し、公開鍵を `authorized_keys` に登録する。パスワード認証は切る
 - **SSH クライアント**: [Citadel](https://github.com/orlandos-nl/Citadel)（SwiftNIO SSH ベース）。1 接続で多重化できるが、端末の接続は再接続で入れ替わるので、一覧の exec と画像の SFTP は用途ごとに短い接続を張って閉じる
-- **端末エミュレータ**: [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)。将来 libghostty の iOS ターゲットに差し替えられるよう protocol の裏に隠す
-- **セッション永続化**: tmux。SSH が切れても Mac mini 側でプロセスを生かす層。ユーザーに tmux のキーバインドは見せない（アプリが `tmux new-session -A` を流すだけ）
+- **端末エミュレータ**: [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)。将来 libghostty の iOS ターゲットに差し替えられるよう protocol の裏に隠す。1.20.0 に固定。マウス追跡中（Claude Code など）の一本指ドラッグが範囲選択になる問題は、`WheelScrollingTerminalView` で一本指をホイール報告に変え（二本指は SwiftTerm 側の従来動作に残すが、tmux 越しでは外側に見えるスクロールバックが無い）、キーボードを閉じた状態のタップもクリックとして転送して回避している（upstream PR #657 を含むリリースに上げたら消す。#14）
+- **セッション永続化**: tmux。SSH が切れても Mac mini 側でプロセスを生かす層。ユーザーに tmux のキーバインドは見せない（アプリが `tmux new-session -A` を流すだけ）。アプリが開くセッションには `set-option mouse on` も流す（tmux は代替画面で描くので外側にスクロールバックが無く、素のシェルの一本指スクロールは tmux の copy-mode に任せる。copy-mode のホイールは 1 行刻み）。`mouse` はセッションに残るので、アプリが一度開いたセッションは Mac から attach しても mouse on。ホイールの bind はサーバー全体を書き換える
 - **プロジェクト一覧**: PolePole の `~/Library/Application Support/polepole/projects.json` を exec で読む。`tmux list-sessions` と突き合わせて作業中のものにマークを付ける
 
 ### Mac mini 側の前提

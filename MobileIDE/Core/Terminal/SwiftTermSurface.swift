@@ -5,7 +5,8 @@ import UIKit
 /// `TerminalSurface` の SwiftTerm 実装。`TerminalView` を 1 枚持ち、そのデリゲートになる。
 @MainActor
 final class SwiftTermSurface: NSObject, TerminalSurface {
-    private let terminalView: TerminalView
+    /// テストから直接触るので internal。`WheelScrollingTerminalView` はマウス追跡中の一本指ドラッグをホイールに変える差し込み（#14 で消す）
+    let terminalView: WheelScrollingTerminalView
 
     private(set) var currentSize: TerminalSize?
     var onInput: ((Data) -> Void)?
@@ -19,7 +20,7 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
     var usesApplicationCursorKeys: Bool { terminalView.getTerminal().applicationCursor }
 
     override init() {
-        terminalView = TerminalView(frame: .zero, font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular))
+        terminalView = WheelScrollingTerminalView(frame: .zero, font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular))
         super.init()
         terminalView.terminalDelegate = self
         terminalView.nativeBackgroundColor = .systemBackground

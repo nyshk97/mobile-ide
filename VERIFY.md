@@ -219,10 +219,13 @@ python3 scripts/verify-terminal.py                              # 接続先は M
 ```
 
 - 1 つ目で `size 54x48` → `size 54x25`（キーボード表示で縮む）→ `hostkey ok` → `connected ... 54x48` → `resized 54x25` の順に出ること。`list-clients` の値が最後の size と一致すること（接続待ちの間に変わったサイズを接続完了時に送っている証明）
+- 接続後は `$T show -t mobile-ide -v mouse` が `on`、`$T list-keys -T copy-mode | grep Wheel` と `-T copy-mode-vi` が `-N 1`（`launchCommand` が attach に続けて流す。`show -gv mouse` は off のまま。アプリが開いたセッションは Mac から attach しても mouse on）
 - `.zshrc` の読み込みで `connected` から tmux セッションが現れるまで数秒かかる。`connected` 直後に `list-sessions` すると「no server running」になるので、`has-session` が通るまで待つ（verify-terminal.py はそうしている）
 - 別プロセスで attach → detach を試すときは、**前のアプリ実体の古いクライアントを掴まない**よう `#{client_created}` が起動時刻以降のクライアントを待つ（古いクライアントに detach を撃つと新しい方が残って偽 fail になる。2026-09-04 に実例）
 - `MOBILE_IDE_TERMINAL_TYPE='echo INPUT_OK\n'` を付けて起動すると接続 1 秒後にその文字列を送る（アプリ → PTY → tmux の経路。SwiftTerm のキー → `send` デリゲートは含まない）
 - Claude Code の描画は `tmux send-keys -t mobile-ide claude Enter` → 数秒後に `mise run shot`。ロゴ・プロンプト・モード表示・tmux ステータスバーが崩れていなければ OK。`send-keys C-c C-c` で終了
+- **`mobile-ide` セッションに実機の Claude Code が attach していることがある**（`tmux list-panes -a -F '#{session_name} #{pane_current_command}'` で `claude.exe` が居たらそれ）。そのときは verify-terminal.py（`mobile-ide` を蹴る）を回さず、キーボードバーの節の `form` 経由の手順で接続・DECCKM・Claude Code 描画を見る
+- マウス追跡中の一本指 → ホイール変換は `mise run test` の `WheelScrollingTerminalViewTests` が見る（`ESC [ ? 1000 h` で `panGestureRecognizer.minimumNumberOfTouches` が 2 になり、`reportWheel` が `ESC [ < 64|65 ; col ; row M` を行数ぶん送る、フォーカス無しの `forwardClick` が `ESC [ < 0 ; col ; row M` と `… m` を送る）。ジェスチャー自体は simctl で撃てないので実機で
 
 ### 実機
 
@@ -238,6 +241,9 @@ python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOB
 - 標準アクセサリ（esc / ctrl / tab / 矢印）が効く。`claude` を起動して Esc で中断、矢印で履歴
 - 横向きに回転すると tmux のステータスバーが横幅いっぱいに描き直される（リサイズが届いている）
 - 戻るで画面を閉じてもう一度開くと、同じ tmux セッションの続きが見える（`-A`）
+- Claude Code を起動した画面を一本指で上下になぞる → 会話がスクロールし、選択・「copied N chars to tmux buffer」が出ない（`WheelScrollingTerminalView`。マウス追跡中の一本指はホイール報告、二本指は従来のスクロール。`--console` に `TERMINAL mouse on` が出ていれば経路に入っている）
+- キーボードを閉じた状態で「Jump to bottom (click) ↓」をタップすると末尾へ飛び、キーボードは出ない（SwiftTerm の singleTap はフォーカス無しだと `becomeFirstResponder` しかしないので、追跡中は `UnfocusedClickGestureRecognizer` がクリックとして転送する）。キーボードを出した状態でも同じく飛ぶ（こちらは SwiftTerm 側の転送）
+- Claude Code を抜けた素のシェルで `seq 1 200` → 一本指で上になぞると tmux の copy-mode（左上に `[N/M]`）で履歴がスクロールし、末尾まで戻ると copy-mode が消える。アプリが流す `set-option mouse on` で tmux が常にマウス追跡するので `TERMINAL mouse` は on のまま。この状態では素のシェルをタップしてもキーボードは出ない（クリックとして tmux へ）ので、キーボードはバー右端の切替で出す
 
 ## プロジェクト一覧（#5）
 
