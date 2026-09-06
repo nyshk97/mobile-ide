@@ -69,6 +69,22 @@ final class SwiftTermSurface: NSObject, TerminalSurface {
     func hideKeyboard() {
         _ = terminalView.resignFirstResponder()
     }
+
+    /// SwiftTerm の `inputView` は設定可能（`public override var inputView` に setter がある）。高さ 0 の view に差し替えると
+    /// first responder のままキーボードだけ出ない。標準キーボードに戻すのは nil
+    var showsKeyboard = true {
+        didSet {
+            guard showsKeyboard != oldValue else { return }
+            terminalView.inputView = showsKeyboard ? nil : Self.makeHiddenInputView()
+            if terminalView.isFirstResponder { terminalView.reloadInputViews() }
+        }
+    }
+
+    private static func makeHiddenInputView() -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        return view
+    }
 }
 
 extension SwiftTermSurface: TerminalViewDelegate {

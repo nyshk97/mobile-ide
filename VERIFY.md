@@ -376,7 +376,7 @@ kill -STOP $PID   # 無音の断: iPhone で別アプリに切り替えて戻る
 
 ## 画像添付（#8）
 
-端末画面の右上（写真アイコン）から PhotosPicker で最大 4 枚選ぶと、アップロード専用の SSH 接続を張って `~/.claude/uploads/`（無ければ `mkdir -p`）に SFTP で置き、端末に `@/絶対パス ` を枚数分流し込む。写真（HEIC / JPEG）は長辺 2048px の JPEG 品質 0.85、スクショ（PNG）は PNG のまま長辺 2048px。転送中は上端バナー「送信中 n / N」、途中失敗は成功分だけ流し込んで「n 枚送れませんでした」。
+端末画面の右上（写真アイコン）から PhotosPicker で最大 4 枚選ぶと、アップロード専用の SSH 接続を張って `~/.claude/uploads/`（無ければ `mkdir -p`）に SFTP で置き、`@/絶対パス ` を枚数分流し込む（直接入力モードなら端末へ、チャット入力欄モードなら入力欄のカーソル位置へ。下の「チャット入力欄」）。写真（HEIC / JPEG）は長辺 2048px の JPEG 品質 0.85、スクショ（PNG）は PNG のまま長辺 2048px。転送中は上端バナー「送信中 n / N」、途中失敗は成功分だけ流し込んで「n 枚送れませんでした」。
 目印行: `UPLOAD start n=<選択枚数>` / `UPLOAD progress <i>/<N>` / `UPLOAD put <path> <bytes>` / `UPLOAD done n=<成功> failed=<失敗>` / `UPLOAD failed <reason>` / `UPLOAD typed <text>`。
 
 Claude Code の対話 TUI に `@/Users/.../x.jpg 質問` を 1 文字列で流し込んでもファイル補完に食われず、cwd 外の絶対パスでも許可プロンプトなしに `Read 1 file` して答える（auto mode で確認。2026-09-05）。
@@ -387,7 +387,7 @@ Claude Code の対話 TUI に `@/Users/.../x.jpg 質問` を 1 文字列で流�
 
 ```sh
 mise run boot && mise run install
-python3 scripts/verify-upload.py     # 5 シナリオ 7 項目（SUMMARY: 7 / 7 passed、約 3 分）。テスト画像は scripts/make-test-images.sh が /tmp に作る
+python3 scripts/verify-upload.py     # 5 シナリオ 7 項目（SUMMARY: 7 / 7 passed、約 3 分）。テスト画像は scripts/make-test-images.sh が /tmp に作る。端末への流し込みを見るので直接入力モード（MOBILE_IDE_INPUT_MODE=direct）で起動する
 ```
 
 - 1: JPEG 4000x3000 + PNG 1200x2600 → `UPLOAD put` のパスを `sips` で見ると 2048x1536 の JPEG と 945x2048 の PNG。`typed` は `@jpg @png ` の順で、`tmux capture-pane -t form` に見える
@@ -404,3 +404,41 @@ python3 scripts/verify-upload.py     # 5 シナリオ 7 項目（SUMMARY: 7 / 7 
 - 3 枚まとめて → `@a @b @c ` の順、バナーが 1 / 3 → 3 / 3
 - 機内モードで選ぶ → 「画像を送れませんでした」。解除後に選び直せ、端末は切れていない
 - `ls -lh ~/.claude/uploads/` で写真が 1MB 前後
+
+## チャット入力欄（composer）
+
+端末の下（キーボードバーの下）に ChatGPT / Claude アプリ風の入力欄と送信ボタン。入力方式（`InputMode`）は `composer`（既定）と `direct`（従来の端末直打ち）で、バーの右端手前のボタンで切り替え、プロジェクト（tmux セッション名）ごとに UserDefaults（`composer.mode.<session>`）に記憶する。下書きは変わるたびに `composer.draft.<session>` に保存する。
+送信は `ComposerMessage.bytes(for:)`: ESC を落とし、改行を `\r` に、末尾の改行を除き、**1 行でも常に** `ESC[200~ … ESC[201~` で包んで最後に `\r`。相手アプリの bracketed paste モードは読まない。**tmux はクライアント端末に attach した時点で `?2004h` を送って常にオンにし、クライアントからの包みをペインのモードに合わせて剥がす / 通す**（Air の tmux 3.7c で pty から実測。2026-09-06）。Mac mini で挙動が違ったら `tmux -V` を見て、下の `?2004l` / `?2004h` + `cat -v` の 2 行で切り分ける。
+composer モードでは端末 view の `inputView` を高さ 0 の view にしてキーボードを出さない（first responder にはなれるので、タップで入力欄のキーボードが閉じ、長押し → Copy は生きる）。スラッシュメニューと画像添付の `@path ` は composer モードでは入力欄のカーソル位置に挿入する。
+目印行: `COMPOSE mode=<composer|direct>`（開いたとき・切替時）/ `COMPOSE inserted <text>` / `COMPOSE sent bytes=<n>` / `COMPOSE draft set n=<文字数>`（DRAFT の自走）/ `COMPOSE draft restored n=<文字数>`。
+
+### 自走検証（シミュレータ）
+
+`MOBILE_IDE_COMPOSE=<text>`（DEBUG。`\n` は改行）で pressKeys の後 `MOBILE_IDE_COMPOSE_AFTER` 秒（既定 1）待って入力欄に入れて送信、`MOBILE_IDE_DRAFT=<text>` で入れるだけ、`MOBILE_IDE_INPUT_MODE=composer|direct` で開くときのモードを上書き（保存しない）、`MOBILE_IDE_PRESS_KEYS=inputMode` で切替。tmux セッションは `form`。
+
+```sh
+mise run boot && mise run install
+bash scripts/make-test-images.sh     # /tmp/mobile-ide-test.png
+python3 scripts/verify-composer.py   # 8 シナリオ 12 項目（SUMMARY: 12 / 12 passed、約 4 分）。Claude Code と Codex を実際に起こす
+```
+
+- 1: `printf "\e[?2004l"; cat -v` に `hello\nworld` → pane に `hello` / `world` だけ（`^[[200~` が**出ない** = tmux が剥がした）、`COMPOSE sent bytes=24`。`printf "\e[?2004h"; cat -v` → `^[[200~hello` / `world^[[201~` で行末が改行（`\r` が包みの外）
+- 2 / 3: `PRESS_KEYS=claude`（Codex は `codex`）+ `COMPOSE='…\n2 行目'` + `COMPOSE_AFTER=10`（Codex は 14）→ 2 行が 1 回の送信として入り「OK」が返る。Codex は `ps -axo args` に `danger-full-access`
+- 4: `PRESS_KEYS=/dig` → composer では `COMPOSE inserted /dig ` で pane は変わらない。`INPUT_MODE=direct` なら pane に `/dig`
+- 5: `UPLOAD_FILE=/tmp/mobile-ide-test.png` → `COMPOSE inserted @/Users/…/uploads/….png ` で pane にパスは出ない
+- 6: `PRESS_KEYS=inputMode,inputMode` → `COMPOSE mode=` が composer → direct → composer。direct で `TERMINAL size` の rows が増える（入力欄が消える）
+- 7: `PRESS_KEYS=inputMode` + `CLOSE_AFTER=3` + `OPEN_TIMES=2`、`INPUT_MODE` を**付けずに** → 2 回目の open が `COMPOSE mode=direct`（保存 → 通常起動での復元。上書き注入だけでは保存経路を通らない）。2 回目でも pressKeys が走るので composer に戻って終わる
+- 8: `DRAFT=途中` + `CLOSE_AFTER=3` + `OPEN_TIMES=2` → 2 回目に `COMPOSE draft restored n=2`。下書きは変わるたびに保存する（onDisappear だけだと開き直しの onAppear が先に走って空を読む。実装中に実測）。残った下書きは `cat` に流して空にする
+- 端末タップの経路（キーボードが端末に移らない・長押し → Copy）は `simctl` にタップ合成が無いので自走では撃たず実機で見る
+- `scripts/verify-upload.py` は直接入力モードで起動するようにしてあるので引き続き 7 / 7。`verify-terminal.py` / `verify-reconnect.py` は `TERMINAL_TYPE`（`session.send` 直接）なので影響しない
+- 見た目は `mise run shot`: 端末 / バー（右端手前に切替ボタン）/ 入力欄「メッセージ」+ 送信ボタン。シミュレータの I/O > Keyboard で Connect Hardware Keyboard がオンだとソフトウェアキーボードが出ない
+
+### 実機（手で確認）
+
+- `claude` を起動 → 入力欄に日本語 3 行（return で改行）→ 送信 → Claude に 1 回の入力として入り実行される。未確定のひらがなが残らない。送信後に入力欄が空でキーボードは開いたまま
+- `/` メニュー → `/dig` が入力欄に入る → 文を足して送信
+- 写真を添付 → `@パス ` が入力欄のカーソル位置に入る → 文を足して送信 → Claude が画像を読む
+- 端末をタップ → 入力欄のキーボードが閉じ、端末側にキーボードは出ない。Claude Code の画面上のタップはクリックとして効く。端末を長押し → 選択 → Copy → 入力欄に貼れる
+- 切替ボタン → 入力欄が消えて端末にキーボードが付く。`ls` + tab で補完が効く。戻すと下書きが残っている
+- アプリを閉じて開き直す → 下書きとモードが残っている
+- 折りたたみ内側画面で入力欄が 1 段で収まり、キーボードを出しても端末が数行は見える

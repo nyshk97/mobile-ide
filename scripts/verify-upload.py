@@ -68,7 +68,9 @@ class App:
         self.path = f"{LOG_DIR}/mobile-ide-{name}.log"
         cmd = [sys.executable, "scripts/console-run.py", "--until", "NEVERMATCH", "--timeout", str(timeout), "--keep",
                "--env", f"MOBILE_IDE_HOST={host}", "--env", f"MOBILE_IDE_PORT={port}", "--env", f"MOBILE_IDE_USER={USER}",
-               "--env", f"MOBILE_IDE_OPEN_PROJECT={SESSION}"]
+               "--env", f"MOBILE_IDE_OPEN_PROJECT={SESSION}",
+               # 既定のチャット入力欄モードでは `@path ` は入力欄に入る（scripts/verify-composer.py が見る）。ここは端末への流し込みを見る
+               "--env", "MOBILE_IDE_INPUT_MODE=direct"]
         for k, v in env.items():
             cmd += ["--env", f"{k}={v}"]
         self.out = open(self.path, "wb")

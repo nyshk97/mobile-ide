@@ -2,18 +2,22 @@ import SwiftUI
 
 /// 端末の下に常駐するキーボードバー（#6 → #13 で整理）。
 ///
-/// 並び: [Claude] [Codex] [git ▾] [/ ▾] | tab ^C | ← ↓ ↑ → ⏎ | キーボード切替。狭い画面では横スクロール。
+/// 並び: [Claude] [Codex] [git ▾] [/ ▾] | tab ^C | ← ↓ ↑ → ⏎ | 入力方式切替 | キーボード切替。狭い画面では横スクロール。
 /// 起動系（Claude / Codex / gpull / gpush）は Enter まで送り、スラッシュコマンドは文字列だけ流す（`Shortcut`）。
+/// 入力方式（`InputMode`）は右端の 2 つの前に置く。チャット入力欄モードではスラッシュコマンドは入力欄に挿入される（`TerminalScreen`）
 struct KeyboardBar: View {
     enum Action: Hashable {
         case key(TerminalKey)
         case shortcut(Shortcut)
         case toggleKeyboard
+        case toggleInputMode
 
         /// 自走検証（MOBILE_IDE_PRESS_KEYS）の名前から
         init?(name: String) {
             if name == "keyboard" {
                 self = .toggleKeyboard
+            } else if name == "inputMode" {
+                self = .toggleInputMode
             } else if let key = TerminalKey(rawValue: name) {
                 self = .key(key)
             } else if let shortcut = Shortcut(name: name) {
@@ -29,11 +33,13 @@ struct KeyboardBar: View {
             case .key(let key): return key.rawValue
             case .shortcut(let shortcut): return shortcut.name
             case .toggleKeyboard: return "keyboard"
+            case .toggleInputMode: return "inputMode"
             }
         }
     }
 
     var isKeyboardVisible: Bool
+    var inputMode: InputMode
     var perform: (Action) -> Void
 
     private let keys: [TerminalKey] = [.tab, .ctrlC]
@@ -57,6 +63,16 @@ struct KeyboardBar: View {
                 .padding(.horizontal, 8)
             }
             Divider().frame(height: 24)
+            Button {
+                perform(.toggleInputMode)
+            } label: {
+                Image(systemName: inputMode == .composer ? "apple.terminal" : "text.bubble")
+                    .frame(width: 44, height: 34)
+                    .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 8)
+            .accessibilityLabel(inputMode == .composer ? "直接入力に切り替える" : "チャット入力に切り替える")
             Button {
                 perform(.toggleKeyboard)
             } label: {
@@ -176,7 +192,7 @@ private struct RepeatKeyButton: View {
 #Preview {
     VStack {
         Spacer()
-        KeyboardBar(isKeyboardVisible: true) { _ in }
-        KeyboardBar(isKeyboardVisible: false) { _ in }
+        KeyboardBar(isKeyboardVisible: true, inputMode: .composer) { _ in }
+        KeyboardBar(isKeyboardVisible: false, inputMode: .direct) { _ in }
     }
 }

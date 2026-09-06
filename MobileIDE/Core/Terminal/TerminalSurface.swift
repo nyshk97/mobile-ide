@@ -38,4 +38,7 @@ protocol TerminalSurface: AnyObject {
     /// ソフトウェアキーボードを出す / 閉じる
     func showKeyboard()
     func hideKeyboard()
+    /// false なら端末が first responder になってもソフトウェアキーボードを出さない（チャット入力欄モード）。
+    /// first responder 自体は許すので、タップで入力欄のキーボードを閉じる・長押しで選択 → Copy は生きる
+    var showsKeyboard: Bool { get set }
 }

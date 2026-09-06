@@ -1,8 +1,11 @@
 import Foundation
 import Observation
 
-/// 画像添付の一連の流れ（変換 → アップロード → 端末に流し込み）と、その表示状態。
+/// 画像添付の一連の流れ（変換 → アップロード → `@path ` の流し込み）と、その表示状態。
 ///
+/// 流し込み先は呼び出し側（`TerminalScreen`）が `deliver` で決める: チャット入力欄モードなら入力欄に挿入、
+/// 直接入力モードなら端末へ。`deliver` が false を返したら（切断中で端末に打てない）パスを見せて手で打てるようにする。
+/// 「端末に接続してから」の入口の判定も呼び出し側（直接入力モードだけ要る。アップロードは PTY と別の SSH 接続）。
 /// 写真ピッカーからも DEBUG の自走（`MOBILE_IDE_UPLOAD_FILE`）からも同じ `send` を通る。
 /// 目印行（`UPLOAD …`）はここで出す（`ImageUploader` は転送しか知らない）。
 @Observable
@@ -26,19 +29,16 @@ final class AttachmentFlow {
 
     var isBusy: Bool { progress != nil }
 
-    /// 選んだ画像（元データ）をホストに置いて、パスを端末に流し込む
+    /// 選んだ画像（元データ）をホストに置いて、パスを `deliver` に渡す
     func send(
         datas: [Data],
         session: PTYSession,
         settings: ConnectionSettings,
         identity: SSHIdentity,
-        knownHosts: KnownHostStore
+        knownHosts: KnownHostStore,
+        deliver: (String) -> Bool
     ) async {
         guard !isBusy else { return }
-        guard session.state == .running else {
-            alert = Alert(title: "端末に接続してから選んでください", message: "接続が戻ったらもう一度選んでください。")
-            return
-        }
         guard !datas.isEmpty else { return }
         print("UPLOAD start n=\(datas.count)")
         fflush(stdout)
@@ -88,12 +88,11 @@ final class AttachmentFlow {
         print("UPLOAD done n=\(paths.count) failed=\(failed)")
         fflush(stdout)
         let text = paths.map { "@\($0) " }.joined()
-        if session.state == .running {
-            session.send(Data(text.utf8))
+        if deliver(text) {
             print("UPLOAD typed \(text)")
             fflush(stdout)
             if failed > 0 {
-                alert = Alert(title: "\(failed) 枚送れませんでした", message: "\(paths.count) 枚は端末に入力しました。\n\(reason ?? "")")
+                alert = Alert(title: "\(failed) 枚送れませんでした", message: "\(paths.count) 枚は入力しました。\n\(reason ?? "")")
             }
         } else {
             // 数秒の転送中に再接続に落ちた。send は黙って捨てるので、パスを見せて手で打てるようにする

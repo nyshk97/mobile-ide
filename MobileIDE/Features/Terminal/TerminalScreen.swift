@@ -1,6 +1,10 @@
 import SwiftUI
 
-/// 端末画面。サーフェス 1 枚 + 接続中 / 切断のオーバーレイ + 再接続中のバナー。
+/// 端末画面。サーフェス 1 枚 + キーボードバー + （チャット入力欄モードなら）入力欄 + 接続中 / 切断のオーバーレイ + 再接続中のバナー。
+///
+/// 入力方式（`InputMode`）は 2 つ。既定のチャット入力欄モードでは入力欄に書いて送信ボタンで PTY に流し（`ComposerMessage`）、
+/// 端末は first responder になってもキーボードを出さない（`surface.showsKeyboard = false`）。直接入力モードは従来どおり端末が
+/// キーボードを持つ。モードと下書きはプロジェクトごとに `ComposerStore` が記憶する
 struct TerminalScreen: View {
     let target: TerminalTarget
 
@@ -14,9 +18,13 @@ struct TerminalScreen: View {
     @State private var surface: any TerminalSurface = SwiftTermSurface()
     @State private var network = NetworkPathObserver()
     @State private var attachments = AttachmentFlow()
+    @State private var store = ComposerStore()
+    @State private var composer = ComposerController()
+    @State private var inputMode: InputMode = .composer
+    @State private var draft = ""
     @State private var wired = false
     @State private var didAutomate = false
-    @State private var isKeyboardVisible = false
+    @State private var isTerminalKeyboardVisible = false
     #if DEBUG
     /// 直前に閉じた画面の端末 view。UIKit のキーボードは最後の first responder を 1 個だけ握り続けるので、
     /// 「1 つ前の view が解放されたか」で有界であることを見る（`MOBILE_IDE_OPEN_TIMES=2`）
@@ -24,12 +32,20 @@ struct TerminalScreen: View {
     private static var closeCount = 0
     #endif
 
+    /// バーのキーボード切替ボタンの見た目。チャット入力欄モードでは入力欄の focus、直接入力モードでは端末のキーボード
+    private var isKeyboardVisible: Bool {
+        inputMode == .composer ? composer.isFocused : isTerminalKeyboardVisible
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             TerminalSurfaceView(surface: surface)
                 .overlay { overlay }
                 .overlay(alignment: .top) { topBanner }
-            KeyboardBar(isKeyboardVisible: isKeyboardVisible, perform: perform)
+            KeyboardBar(isKeyboardVisible: isKeyboardVisible, inputMode: inputMode, perform: perform)
+            if inputMode == .composer {
+                ComposerView(text: $draft, controller: composer, onSend: sendDraft)
+            }
         }
         .navigationTitle(target.sessionName)
         .navigationBarTitleDisplayMode(.inline)
@@ -70,10 +86,15 @@ struct TerminalScreen: View {
             #endif
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            isKeyboardVisible = true
+            isTerminalKeyboardVisible = true
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            isKeyboardVisible = false
+            isTerminalKeyboardVisible = false
+        }
+        .onChange(of: draft) { _, text in
+            // 変わるたびに保存する。onDisappear だけだと、閉じた直後に同じプロジェクトを開いたとき（自走の OPEN_TIMES=2 で実測）
+            // 新しい画面の onAppear が古い画面の onDisappear より先に走り、空の下書きを読む。UserDefaults の set はメモリ上の更新で安い
+            store.setDraft(text, for: target.sessionName)
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -97,20 +118,77 @@ struct TerminalScreen: View {
         }
     }
 
-    /// バーの操作。バーからの入力もエミュレータ経由（`surface.send`）で `onInput` に流れる
+    /// バーの操作。キーと起動系はどちらのモードでも PTY へ（エミュレータ経由の `surface.send` → `onInput`）。
+    /// スラッシュコマンドはチャット入力欄モードなら入力欄に挿入する（引数を続けて書ける）
     private func perform(_ action: KeyboardBar.Action) {
         switch action {
         case .key(let key):
             surface.send(bytes: key.bytes(applicationCursor: surface.usesApplicationCursorKeys))
         case .shortcut(let shortcut):
-            surface.send(text: shortcut.text)
+            if case .slash = shortcut, inputMode == .composer {
+                insertIntoDraft(shortcut.text)
+            } else {
+                surface.send(text: shortcut.text)
+            }
         case .toggleKeyboard:
-            if isKeyboardVisible { surface.hideKeyboard() } else { surface.showKeyboard() }
+            switch inputMode {
+            case .composer:
+                if composer.isFocused { composer.blur() } else { composer.focus() }
+            case .direct:
+                if isTerminalKeyboardVisible { surface.hideKeyboard() } else { surface.showKeyboard() }
+            }
+        case .toggleInputMode:
+            setInputMode(inputMode.toggled)
         }
     }
 
-    /// 自走検証: MOBILE_IDE_TERMINAL_TYPE の送信、MOBILE_IDE_PRESS_KEYS のバー操作の再現、MOBILE_IDE_PROBE_AFTER の生存判定。
-    /// 最初に running になったときだけ走る（再接続のたびに文字列を送り直さない）
+    /// 入力方式を切り替えて記憶する。キーボードは新しい側に渡す（下書きは残す）
+    private func setInputMode(_ mode: InputMode) {
+        inputMode = mode
+        store.setMode(mode, for: target.sessionName)
+        print("COMPOSE mode=\(mode.rawValue)")
+        fflush(stdout)
+        applyInputMode(focus: true)
+    }
+
+    /// モードに応じて端末のキーボード可否と focus を揃える
+    private func applyInputMode(focus: Bool) {
+        switch inputMode {
+        case .composer:
+            surface.showsKeyboard = false
+            surface.hideKeyboard()
+            if focus { composer.focus() }
+        case .direct:
+            composer.blur()
+            surface.showsKeyboard = true
+            if focus { surface.showKeyboard() }
+        }
+    }
+
+    /// 入力欄のカーソル位置に差し込む（スラッシュコマンド・画像のパス）
+    private func insertIntoDraft(_ text: String) {
+        composer.insert(text, into: &draft)
+        print("COMPOSE inserted \(text)")
+        fflush(stdout)
+    }
+
+    /// 送信ボタン。未確定文字を確定 → `ComposerMessage` で包んで PTY へ → 入力欄を空に。切断中は送らず下書きを残す
+    private func sendDraft() {
+        composer.commitMarkedText()
+        let data = ComposerMessage.bytes(for: draft)
+        guard !data.isEmpty else { return }
+        guard session.state == .running else {
+            attachments.alert = AttachmentFlow.Alert(title: "端末に接続していません", message: "接続が戻ったらもう一度送ってください。下書きは残しています。")
+            return
+        }
+        session.send(data)
+        print("COMPOSE sent bytes=\(data.count)")
+        fflush(stdout)
+        draft = ""  // onChange で保存も空になる
+    }
+
+    /// 自走検証: MOBILE_IDE_TERMINAL_TYPE の送信、MOBILE_IDE_PRESS_KEYS のバー操作の再現、MOBILE_IDE_DRAFT / MOBILE_IDE_COMPOSE の
+    /// 入力欄操作、MOBILE_IDE_PROBE_AFTER の生存判定。最初に running になったときだけ走る（再接続のたびに文字列を送り直さない）
     private func runAutomation() async {
         if let text = LaunchOptions.terminalTextToType {
             try? await Task.sleep(for: .seconds(1))
@@ -134,6 +212,17 @@ struct TerminalScreen: View {
             }
             print("KEYS done")
             fflush(stdout)
+        }
+        if let text = LaunchOptions.draftText {
+            try? await Task.sleep(for: .milliseconds(500))
+            insertIntoDraft(text)
+            print("COMPOSE draft set n=\(draft.count)")
+            fflush(stdout)
+        }
+        if let text = LaunchOptions.composeText {
+            try? await Task.sleep(for: .seconds(LaunchOptions.composeAfter))
+            insertIntoDraft(text)
+            sendDraft()
         }
         if let seconds = LaunchOptions.probeAfter {
             try? await Task.sleep(for: .seconds(seconds))
@@ -166,9 +255,25 @@ struct TerminalScreen: View {
         }
     }
 
-    /// 写真ピッカー / 自走の両方から。変換 → アップロード → 端末に流し込み
+    /// 写真ピッカー / 自走の両方から。変換 → アップロード → パスの流し込み。
+    /// 流し込み先はモードで分ける: チャット入力欄なら接続状態に関係なく入力欄へ、直接入力なら running のときだけ端末へ
     private func attach(_ datas: [Data]) async {
-        await attachments.send(datas: datas, session: session, settings: settings, identity: identity, knownHosts: knownHosts)
+        // 直接入力モードは端末に打ち込むので接続が要る。チャット入力欄モードは切断中でも入力欄に挿せる（アップロードは別接続）
+        if inputMode == .direct, session.state != .running {
+            attachments.alert = AttachmentFlow.Alert(title: "端末に接続してから選んでください", message: "接続が戻ったらもう一度選んでください。")
+            return
+        }
+        await attachments.send(datas: datas, session: session, settings: settings, identity: identity, knownHosts: knownHosts) { text in
+            switch inputMode {
+            case .composer:
+                insertIntoDraft(text)
+                return true
+            case .direct:
+                guard session.state == .running else { return false }
+                session.send(Data(text.utf8))
+                return true
+            }
+        }
     }
 
     /// 上端のバナー。再接続中を優先し、次に画像の送信中
@@ -268,6 +373,12 @@ struct TerminalScreen: View {
     private func wireUp() {
         guard !wired else { return }
         wired = true
+        // モードと下書きの復元。MOBILE_IDE_INPUT_MODE は上書きだけで保存しない（保存 → 復元の経路は付けずに開き直して見る）
+        inputMode = LaunchOptions.inputModeOverride ?? store.mode(for: target.sessionName)
+        draft = store.draft(for: target.sessionName)
+        print("COMPOSE mode=\(inputMode.rawValue)")
+        if !draft.isEmpty { print("COMPOSE draft restored n=\(draft.count)") }
+        fflush(stdout)
         #if DEBUG
         print("TERMINAL wired surface=\(LaunchOptions.objectID(surface)) session=\(LaunchOptions.objectID(session))")
         fflush(stdout)
@@ -289,7 +400,7 @@ struct TerminalScreen: View {
         if let size = surface.currentSize, session.state == .idle {
             start(size: size)
         }
-        DispatchQueue.main.async { surface.showKeyboard() }
+        DispatchQueue.main.async { applyInputMode(focus: true) }
     }
 
     private func start(size: TerminalSize? = nil) {

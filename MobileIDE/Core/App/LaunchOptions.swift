@@ -7,7 +7,14 @@ import Foundation
 /// - `MOBILE_IDE_OPEN_PROJECT=<sessionName>`: 一覧を読み終えたら該当行の端末を開く
 /// - `MOBILE_IDE_TERMINAL_TYPE=<text>`: 端末接続後 1 秒待ってその文字列を送る（`\n` は改行に展開）
 /// - `MOBILE_IDE_PRESS_KEYS=tab,enter,claude,gpull,/dig,keyboard`（DEBUG のみ）: 端末接続後、キーボードバーの操作を順に再現する。
-///   `TerminalKey` の名前（バーに無い esc 等も可）、ショートカット（`claude` / `codex` / `gpull` / `gpush` / `/` 始まり）、`keyboard`
+///   `TerminalKey` の名前（バーに無い esc 等も可）、ショートカット（`claude` / `codex` / `gpull` / `gpush` / `/` 始まり）、
+///   `keyboard`（キーボード切替）、`inputMode`（チャット入力 ⇄ 直接入力の切替）
+/// - `MOBILE_IDE_DRAFT=<text>`（DEBUG のみ）: pressKeys の後、チャット入力欄に入れるだけで送信しない（下書き保存の検証用）
+/// - `MOBILE_IDE_COMPOSE=<text>`（DEBUG のみ）: pressKeys の後 `MOBILE_IDE_COMPOSE_AFTER` 秒（既定 1）待ってチャット入力欄に入れて送信する
+///   （`\n` は改行に展開。`COMPOSE sent bytes=<n>` が出る）。Claude / Codex を pressKeys で起こしてから送るなら待ちを 8 秒程度にする
+///   DRAFT / COMPOSE は direct モードでも下書き（保存される）に書いて送るので、composer モードで使うこと
+/// - `MOBILE_IDE_INPUT_MODE=composer|direct`（DEBUG のみ）: 端末画面を開くときの入力方式を上書きする（保存はしない。
+///   保存 → 通常起動での復元の経路は、これを付けずに開き直して `COMPOSE mode=` で見る）
 /// - `MOBILE_IDE_PROBE_AFTER=<秒>`（DEBUG のみ）: 端末接続の N 秒後に生存判定（フォアグラウンド復帰と同じ経路）を呼ぶ。
 ///   背面に回す経路自体は `xcrun simctl launch booted com.apple.Preferences` → `simctl launch booted <bundle>` で再現できるが、
 ///   起動オプションのほうが速くて安定するので自走ではこちらを使う
@@ -40,6 +47,34 @@ enum LaunchOptions {
         #if DEBUG
         guard let value = env["MOBILE_IDE_PRESS_KEYS"], !value.isEmpty else { return nil }
         return value.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+        #else
+        return nil
+        #endif
+    }
+    static var draftText: String? {
+        #if DEBUG
+        return env["MOBILE_IDE_DRAFT"].flatMap { $0.isEmpty ? nil : $0.replacingOccurrences(of: "\\n", with: "\n") }
+        #else
+        return nil
+        #endif
+    }
+    static var composeText: String? {
+        #if DEBUG
+        return env["MOBILE_IDE_COMPOSE"].flatMap { $0.isEmpty ? nil : $0.replacingOccurrences(of: "\\n", with: "\n") }
+        #else
+        return nil
+        #endif
+    }
+    static var composeAfter: Double {
+        #if DEBUG
+        return env["MOBILE_IDE_COMPOSE_AFTER"].flatMap(Double.init) ?? 1
+        #else
+        return 1
+        #endif
+    }
+    static var inputModeOverride: InputMode? {
+        #if DEBUG
+        return env["MOBILE_IDE_INPUT_MODE"].flatMap(InputMode.init(rawValue:))
         #else
         return nil
         #endif

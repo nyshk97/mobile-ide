@@ -1,4 +1,4 @@
-"""アプリを --console 付きで起動し、stdout の目印行（SSH / TERMINAL / PROJECTS / KEYS で始まる行）を集める自走ドライバ。
+"""アプリを --console 付きで起動し、stdout の目印行（SSH / TERMINAL / PROJECTS / KEYS / UPLOAD / COMPOSE などで始まる行）を集める自走ドライバ。
 
 使い方:
   python3 scripts/console-run.py [--device ID] [--env KEY=VALUE ...] [--until MARKER] [--timeout SEC] [--keep]
@@ -19,7 +19,7 @@ import sys
 import time
 
 BUNDLE = "com.d0ne1s.mobileide"
-MARKERS = ("SSH ", "TERMINAL ", "PROJECTS ", "KEYS ", "HOME ", "NETWORK ", "UPLOAD ")
+MARKERS = ("SSH ", "TERMINAL ", "PROJECTS ", "KEYS ", "HOME ", "NETWORK ", "UPLOAD ", "COMPOSE ")
 
 
 def main(argv):

@@ -15,7 +15,7 @@ MVP（#10 の段階 0〜8）は 2026-09-05 に完了し、MacBook Air をホス�
 
 - iPhone を開いて、Mac の既存プロジェクトで Claude Code / Codex に 1 タスク頼み、結果を見て閉じる
 - アプリを閉じても Mac 側の tmux セッションは生き続け、次に開いたときに続きが見える。回線が切れても黙って張り直す
-- 写真やスクショを Claude に渡せる
+- 写真やスクショを Claude に渡せる（チャット入力欄モードでは `@パス ` が入力欄のカーソル位置に入り、文を足して送れる）
 - PolePole でピン留めしているプロジェクト一覧をそのまま使う。管理は二重化しない
 - iPhone で始めた Claude Code の会話を Mac の PolePole から `claude --resume` で続けられる。逆も同じ（同じホーム・同じ作業ディレクトリなので会話ログを共有できる。#9 で実測）
 - 外出先（モバイル回線のみ）からも同じホスト名で繋がる（Tailscale）
@@ -56,10 +56,12 @@ iPhone アプリ                          Mac（開発中は Air、本番は Mac
 
 1. **接続設定**（歯車）: ホスト名（Tailscale の MagicDNS 名）・ポート・ユーザー名、公開鍵の表示とコピー、鍵の作り直し、ホスト鍵の指紋と忘れる操作、接続テスト。接続先は 1 台固定
 2. **プロジェクト一覧**（ホーム）: PolePole のピン順で表示し、その他は最近開いた順。生きている tmux セッションがある行にマーク。タップで端末へ
-3. **端末画面**: SwiftTerm 1 枚 + 端末の下に常駐するキーボードバー。日本語入力は確定後にだけ送る
+3. **端末画面**: SwiftTerm 1 枚 + 端末の下に常駐するキーボードバー + チャット入力欄。入力方式は 2 つでプロジェクトごとに記憶する
+   - **チャット入力欄（既定）**: ChatGPT / Claude アプリと同じく複数行を書いて送信ボタンで送る（return は改行）。本文は常に bracketed paste で包んで Enter を付けて PTY に流す。tmux がクライアント端末に対して常に bracketed paste を有効にし、ペイン側のモードに合わせて包みを剥がす / 通すので、Claude Code / Codex は複数行を 1 入力として受け、`cat` のようなアプリには素の行が届く。下書きは変わるたびに保存し、開き直しても残る。端末をタップすると入力欄のキーボードが閉じる（端末側にはキーボードを出さない。長押し → Copy は生きる）
+   - **直接入力**: 端末がキーボードを持ち 1 キーずつ送る（tab 補完・vim / less・Enter なしの入力用）。日本語入力は確定後にだけ送る
    - Claude Code 起動（`claude --dangerously-skip-permissions`）/ Codex 起動（`codex -a never -s danger-full-access`）
-   - git メニュー（`gpull` / `gpush`）/ スラッシュコマンドのメニュー（`/dig` `/plot` `/act` `/retro` `/resume` など）
-   - tab / ^C / 矢印 4 方向（長押しでリピート）/ ⏎ / キーボード切替
+   - git メニュー（`gpull` / `gpush`）/ スラッシュコマンドのメニュー（`/dig` `/plot` `/act` `/retro` `/resume` など。チャット入力欄モードでは入力欄に挿入され、引数を続けて書ける）
+   - tab / ^C / 矢印 4 方向（長押しでリピート）/ ⏎ / 入力方式の切替 / キーボード切替（どちらのモードでもキーは PTY に直接届く）
 4. **再接続**: 回線断を検出したらバックオフ付きで黙って SSH を張り直し、同じ tmux セッションに attach し直す。フォアグラウンド復帰時と経路変更時（Wi-Fi ↔ モバイル回線）は短い exec で生存を探り、死んでいれば張り直す。バックグラウンドに 60 秒以上いた復帰は探らず張り直す（sshd の ClientAlive で切られているはずで、Tailscale 経由では RST が届かず探ると 3 秒待つ）。再接続中は端末を消さずに薄いバナーだけ出す。tmux 内で exit した正常終了は張り直さない
 5. **画像添付**: 写真ピッカーで最大 4 枚選び、長辺 2048px に縮小（写真は JPEG、スクショは PNG のまま）して SFTP で `~/.claude/uploads/` に置き、`@<絶対パス> ` を端末に流し込む。途中で失敗しても成功分だけ流し込む
 
@@ -96,9 +98,9 @@ MobileIDE/
   Core/Terminal/ TerminalSurface protocol と SwiftTerm 実装、キー定義、ショートカット
   Core/Projects/ projects.json の読み込みと tmux セッション名
   Core/Media/   画像の縮小・変換
-  Features/     Home（一覧）/ Terminal（端末・キーボードバー・添付）/ Settings
+  Features/     Home（一覧）/ Terminal（端末・キーボードバー・チャット入力欄・添付）/ Settings
 MobileIDETests/ ユニットテスト
-scripts/        ホストのセットアップ、自走検証（端末・再接続・添付・ClientAlive）、アイコン生成
+scripts/        ホストのセットアップ、自走検証（端末・再接続・添付・チャット入力欄・ClientAlive）、アイコン生成
 docs/plans/     段階ごとの plan と実装ログ
 ```
 
