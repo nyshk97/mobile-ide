@@ -54,14 +54,14 @@ mise run device-run         # build → devicectl install → launch
 - ホーム画面に「Mobile IDE」の名前でアイコンが並ぶこと
 - 起動してプレースホルダ画面が表示されること
 
-## ホスト（開発中は MacBook Air、本番は Mac mini）
+## ホスト（Mac mini。2026-09-22 までは MacBook Air）
 
-アプリから見たホストは sshd + tmux + PolePole の `projects.json` があるだけの SSH サーバー。Mac mini が届くまでは MacBook Air をホストにする（#1）。
+アプリから見たホストは sshd + tmux + PolePole の `projects.json` があるだけの SSH サーバー。2026-09-23 に MacBook Air から Mac mini に切り替えた（#12）。以下で「Air で実測」とあるものは切り替え前の記録。
 
 ### 準備（sudo が要る・冪等）
 
 ```sh
-bash scripts/host-setup.sh --skip-power --skip-autologin   # ノート（Air）。Mac mini はフラグ無し
+bash scripts/host-setup.sh --skip-power --skip-autologin   # ノート（Air）に当てるとき。Mac mini はフラグ無し
 bash scripts/host-setup.sh --dry-run                        # 書かずに判定だけ（Claude Code のセッションからはこれ）
 ```
 
@@ -74,7 +74,8 @@ bash scripts/host-setup.sh --dry-run                        # 書かずに判定
 `00-` で置くのは、後から読まれた設定に負けないため（sshd は先に読まれた値が勝つ）。macOS の sshd は接続ごとに launchd が起動するので再起動は不要。スクリプトは書く前後に `sshd -t` を通し、通らなければ退避から戻す（壊れた conf を置くと以後の新規接続が全部失敗し、外出先からは回復できない）。
 
 - System Settings → 一般 → 共有 → リモートログイン の (i) で「リモートユーザーにフルディスクアクセスを許可」を ON にする（`~/.ssh` と dotfiles が `~/Library/CloudStorage/` 配下にあり、sshd から読むのに必要。スクリプトの `step=fda` が判定する）
-- 手元の公開鍵を `~/.ssh/authorized_keys` に入れておく（Air では `id_rsa.pub` を登録済み）。アプリの鍵は `step=authorized_keys` が件数を出す
+- 手元の公開鍵を `~/.ssh/authorized_keys` に入れておく（`id_rsa.pub` を登録済み。`~/.ssh` は Dropbox の dotfiles で Air と mini が共有している）。アプリの鍵は `step=authorized_keys` が件数を出す
+- **`step=fda result=unknown`（`ssh localhost` が通らない）で鍵もリモートログインも正しいなら、`known_hosts` の `localhost` が別の Mac のホスト鍵になっている**。`known_hosts` も Dropbox で共有しているので、`ssh -o BatchMode=yes localhost true` が `REMOTE HOST IDENTIFICATION HAS CHANGED` で落ちる。`~/.ssh/config` の先頭に `NoHostAuthenticationForLocalhost yes` を入れて解消済み（2026-09-23 に mini で踏んだ）
 
 ### 確認
 
@@ -88,7 +89,7 @@ ssh -o BatchMode=yes -tt localhost 'zsh -ic "which tmux"'   # /opt/homebrew/bin/
 - 1 行目が `tmux 3.x` と `verify: 1 windows ...` を出し、対話なしで通ること（BatchMode なのでパスワードを聞かれると失敗する）
 - 2 行目が `Permission denied (publickey)` で落ちること（パスワード認証が閉じている証明）
 - 3 行目で tmux のパスが出ること。exec チャネル（1 行目）は `.zshrc` を読まないので PATH 前置きが必須。PATH 無しだと `command not found: tmux` になる（2026-09-04 に Air で実測）
-- iPhone からは Tailscale の MagicDNS 名 `tsubasamacbook-air.tail9fb38b.ts.net` に接続する（Mac 側で `Tailscale status --json` の `Self.DNSName`。Wi-Fi でもモバイル回線でも同じ名前）。2026-09-05 より前は同じ Wi-Fi 上の `tsubasanoMacBook-Air-4.local`（`scutil --get LocalHostName`）だった
+- iPhone からは Tailscale の MagicDNS 名 `tsubasamac-mini.tail9fb38b.ts.net` に接続する（Mac 側で `Tailscale status --json` の `Self.DNSName`。Wi-Fi でもモバイル回線でも同じ名前）。2026-09-05 より前は同じ Wi-Fi 上の `tsubasanoMacBook-Air-4.local`（`scutil --get LocalHostName`）だった
 - **端末のプロンプトが素の `user@host dir %` になり mise / starship が `Operation not permitted` を出す**ときは、tmux サーバーが FDA を失っている（sshd 自身は読めていても、起動済みのサーバーは別）。`ssh localhost 'PATH=/opt/homebrew/bin:$PATH; tmux -L probe new-session -d "cat ~/.config/mise/config.toml > /tmp/tcc.out 2>&1"; sleep 1; cat /tmp/tcc.out; tmux -L probe kill-server'` で新サーバーなら読めることを確認し、`tmux kill-server` で作り直す（全セッションが消える。2026-09-05 に実例）
 - **tmux 内で `claude` を起動すると「Not logged in · Run /login」になる**ときは、tmux サーバーが sshd から起動されていてログインキーチェーンが閉じている（Claude Code の資格情報はログインキーチェーンにある）。サーバーは GUI ログインセッション側から起動しておく: Mac の Terminal / Claude Code から `tmux new -d -s bootstrap; tmux set -g exit-empty off; tmux kill-session -t bootstrap`（`exit-empty off` でセッションが 0 でもサーバーが残る）。切り分けは `ps -o ppid= -p $(tmux display -p '#{pid}')` の親が launchd で、サーバー起動時の親が sshd だったかどうか（2026-09-05 に実例。Mac mini でどう起こすかは #12。LaunchAgent はキーチェーンは読めるが CloudStorage の読み取りが TCC で止まる → docs/tailscale.md「未解決」）
 
@@ -141,7 +142,7 @@ iPhone の tmux で始めた会話を PolePole のターミナルで `claude --r
 ### authorized_keys への登録
 
 1. 設定画面の「公開鍵をコピー」（または起動時 stdout の `SSH pubkey ...` 行）で `ssh-ed25519 AAAA... mobile-ide` を取る
-2. ホスト側の `~/.ssh/authorized_keys` に 1 行追記する（Air では `~/Dropbox/dotfiles/.ssh/authorized_keys`、権限 600）
+2. ホスト側の `~/.ssh/authorized_keys` に 1 行追記する（実体は `~/Dropbox/dotfiles/.ssh/authorized_keys`、権限 600。Air と mini で共有）
 3. 設定画面の「接続してみる」が「接続できました」になる
 
 シミュレータの鍵と実機の鍵は別なので、それぞれ登録する。`ssh-keygen -l -f <公開鍵行を書いたファイル>` が `256 SHA256:... (ED25519)` を返せば形式は正しい。
@@ -175,28 +176,28 @@ python3 scripts/console-run.py --env MOBILE_IDE_CONNECTION_TEST=1 --env MOBILE_I
 環境変数の上書き（`MOBILE_IDE_HOST` 等）は保存されない。実機で設定を残すには設定画面で手入力するか、DEBUG の `MOBILE_IDE_SAVE_SETTINGS=1` を付けて一度起動して焼き込む（手入力と同じ setter → didSet を通る）:
 
 ```sh
-python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_HOST=tsubasamacbook-air.tail9fb38b.ts.net --env MOBILE_IDE_USER=d0ne1s --env MOBILE_IDE_SAVE_SETTINGS=1 --until "PROJECTS"
+python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_HOST=tsubasamac-mini.tail9fb38b.ts.net --env MOBILE_IDE_USER=d0ne1s --env MOBILE_IDE_SAVE_SETTINGS=1 --until "PROJECTS"
 ```
 
 ```sh
 mise run device-install
 python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --until "SSH pubkey"     # 公開鍵行を拾って authorized_keys に登録
 python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_CONNECTION_TEST=1 \
-    --env MOBILE_IDE_HOST=tsubasamacbook-air.tail9fb38b.ts.net --env MOBILE_IDE_USER=d0ne1s --until "SSH test"
+    --env MOBILE_IDE_HOST=tsubasamac-mini.tail9fb38b.ts.net --env MOBILE_IDE_USER=d0ne1s --until "SSH test"
 ```
 
-- 接続先は Tailscale の MagicDNS 名（2026-09-05 に導入。tailnet `tail9fb38b.ts.net`、Air = `tsubasamacbook-air` / 100.117.207.63、iPhone = `iphone184` / 100.119.208.94）。iPhone の Tailscale アプリが Connected であること。**アプリが Tailscale 経由で入っている証明は sshd の接続元が iPhone の 100.x であること**: `MOBILE_IDE_TERMINAL_AUTORUN=1 ... --keep` で端末を張ったまま `netstat -an -p tcp | awk '$4 ~ /\.22$/ && $6=="ESTABLISHED" {print $5}'` → `100.119.208.94.<port>`（`lsof` は root の sshd を見られないので使えない）。**同一 Wi-Fi にいる限り `.local` でも通ってしまうので、外出先想定の決定打は iPhone の Wi-Fi を切ってモバイル回線だけで一覧と端末が出ること**（手で確認）。経路が DERP リレーか直接かは `Tailscale ping 100.119.208.94`（`via DERP(tok)` / `via 192.168.x.x:41641`）で見える。直後は DERP でも数分で直接に昇格する
+- 接続先は Tailscale の MagicDNS 名（2026-09-05 に導入。tailnet `tail9fb38b.ts.net`、Mac mini = `tsubasamac-mini` / 100.106.235.35（09-22 までは Air = `tsubasamacbook-air` / 100.117.207.63）、iPhone = `iphone184` / 100.119.208.94）。iPhone の Tailscale アプリが Connected であること。**アプリが Tailscale 経由で入っている証明は sshd の接続元が iPhone の 100.x であること**: `MOBILE_IDE_TERMINAL_AUTORUN=1 ... --keep` で端末を張ったまま `netstat -an -p tcp | awk '$4 ~ /\.22$/ && $6=="ESTABLISHED" {print $5}'` → `100.119.208.94.<port>`（`lsof` は root の sshd を見られないので使えない）。**同一 Wi-Fi にいる限り `.local` でも通ってしまうので、外出先想定の決定打は iPhone の Wi-Fi を切ってモバイル回線だけで一覧と端末が出ること**（手で確認）。経路が DERP リレーか直接かは `Tailscale ping 100.119.208.94`（`via DERP(tok)` / `via 192.168.x.x:41641`）で見える。直後は DERP でも数分で直接に昇格する
 - `.local` で繋いでいた頃は **初回接続で iPhone にローカルネットワークの許可ダイアログが出て、許可するまで `No route to host (errno: 65)` になった**（`.local` の名前解決は通っていて IP まで出るので、ネットワーク障害と見誤りやすい）。Tailscale の 100.x 宛てなら不要。出ていなければ 設定 → プライバシーとセキュリティ → ローカルネットワーク で Mobile IDE を ON にする
 - 手で確認する項目: 設定画面のホスト鍵の指紋が Mac の `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` と一致する / 「鍵を作り直す」→ 新しい公開鍵を登録 → 接続テスト OK / 「このホスト鍵を忘れる」→ 接続テストで再び記録される
 
 ## 端末（#3）
 
-Home の「mobile-ide」行から、Air の tmux セッション `mobile-ide`（作業ディレクトリ `~/mobile-ide`）に SwiftTerm で入る。
+Home の「mobile-ide」行から、ホストの tmux セッション `mobile-ide`（作業ディレクトリ `~/mobile-ide`）に SwiftTerm で入る。
 接続先は設定画面（歯車）の値。自走検証では `MOBILE_IDE_HOST` / `MOBILE_IDE_USER` で上書きする（保存はされない）。
 
 ### 観測点
 
-tmux サーバーは開発中のホスト（今は Air）上の同じユーザーのものなので、この Mac で `tmux` を直接叩けば端末の状態を見られる。
+tmux サーバーはホスト（Mac mini）上の同じユーザーのものなので、この Mac で `tmux` を直接叩けば端末の状態を見られる。
 
 ```sh
 T=/opt/homebrew/bin/tmux
@@ -232,7 +233,7 @@ python3 scripts/verify-terminal.py                              # 接続先は M
 ```sh
 mise run device-install
 python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_TERMINAL_AUTORUN=1 \
-    --env MOBILE_IDE_HOST=tsubasamacbook-air.tail9fb38b.ts.net --env MOBILE_IDE_USER=d0ne1s --until "TERMINAL connected" --keep
+    --env MOBILE_IDE_HOST=tsubasamac-mini.tail9fb38b.ts.net --env MOBILE_IDE_USER=d0ne1s --until "TERMINAL connected" --keep
 /opt/homebrew/bin/tmux list-clients -t mobile-ide -F '#{client_width}x#{client_height} created=#{client_created}'
 ```
 
@@ -255,7 +256,7 @@ Home に PolePole の `projects.json`（ピン留めは配列順、その他は 
 T=/opt/homebrew/bin/tmux
 python3 -c "import json; d=json.load(open('$HOME/Library/Application Support/polepole/projects.json'))['projects']; print(sum(p.get('isPinned',False) for p in d), sum(not p.get('isPinned',False) for p in d))"   # 期待する pinned / others
 python3 scripts/console-run.py --env MOBILE_IDE_HOST=127.0.0.1 --env MOBILE_IDE_USER=d0ne1s --until "PROJECTS" --keep      # loaded の件数が一致。mise run shot でピン順と色を見る
-$T new-session -d -s form -c ~/form                                                                                          # Air 側でセッションを作る
+$T new-session -d -s form -c ~/form                                                                                          # ホスト側でセッションを作る
 python3 scripts/console-run.py --env MOBILE_IDE_HOST=127.0.0.1 --env MOBILE_IDE_USER=d0ne1s --until "PROJECTS"             # alive に form が入る（HyperForm の行に緑の点）
 $T kill-session -t form
 python3 scripts/console-run.py --env MOBILE_IDE_HOST=127.0.0.1 --env MOBILE_IDE_USER=d0ne1s --until "PROJECTS"             # alive から消える（「消えた」の前に「あった」を見ている）
@@ -272,7 +273,7 @@ mise run test                                                                   
 
 ```sh
 mise run device-install
-python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_HOST=tsubasamacbook-air.tail9fb38b.ts.net --env MOBILE_IDE_USER=d0ne1s --until "PROJECTS"
+python3 scripts/console-run.py --device "$(bash scripts/device-id.sh)" --env MOBILE_IDE_HOST=tsubasamac-mini.tail9fb38b.ts.net --env MOBILE_IDE_USER=d0ne1s --until "PROJECTS"
 ```
 
 手で確認する項目: 一覧が PolePole のサイドバーと同じ順・同じ色 / ピン留めの行をタップして tmux に入り、プロンプトの作業ディレクトリがそのプロジェクト / 戻ると行に印 / pull-to-refresh で更新

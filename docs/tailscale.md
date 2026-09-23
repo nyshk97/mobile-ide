@@ -9,11 +9,12 @@
 | プラン | Personal（無料。ユーザー 3 人・デバイス 100 台まで） |
 | ログイン | Google アカウント nyshk97@gmail.com（個人。会社の Workspace で入ると会社ドメインの tailnet になるので注意） |
 | tailnet | `tail9fb38b.ts.net`（MagicDNS 有効） |
-| Air | `tsubasamacbook-air` / 100.117.207.63 / `tsubasamacbook-air.tail9fb38b.ts.net`。Key expiry 無効化済み |
+| Mac mini（ホスト） | `tsubasamac-mini` / 100.106.235.35 / `tsubasamac-mini.tail9fb38b.ts.net`。2026-09-23 に追加 |
+| Air（旧ホスト） | `tsubasamacbook-air` / 100.117.207.63 / `tsubasamacbook-air.tail9fb38b.ts.net`。Key expiry 無効化済み。2026-09-22 まではアプリの接続先だった |
 | iPhone | `iphone184` / 100.119.208.94 |
 | 管理画面 | https://login.tailscale.com/admin/machines |
 
-アプリの接続先ホスト名は Air の MagicDNS 名。実機への焼き込みと確認手順は [VERIFY.md](../VERIFY.md) の「接続設定と鍵 → 実機」。
+アプリの接続先ホスト名は Mac mini の MagicDNS 名。実機への焼き込みと確認手順は [VERIFY.md](../VERIFY.md) の「接続設定と鍵 → 実機」。
 
 ## セットアップ手順（Mac 側）
 
@@ -43,12 +44,12 @@ CLI は `/Applications/Tailscale.app/Contents/MacOS/Tailscale`。`status` / `pin
 - `.local` で繋いでいた頃は iPhone にローカルネットワークの許可ダイアログが出て、許可するまで `No route to host` になった。100.x 宛てなら不要
 - つながらないときはまず iPhone の Tailscale のトグル（iOS 側で VPN を切ると当然落ちる）
 
-## Mac mini 到着後
+## Mac mini のセットアップ（2026-09-23 に実施）
 
-チェックリストは issue #12。手順の実体はここ。
+チェックリストは issue #12。手順の実体はここ。ホストを作り直すときも同じ手順をなぞる。
 
 1. 土台: Dropbox にサインインして同期 → `~/Library/CloudStorage/Dropbox/settings/setup-dotfiles.sh` → Homebrew / mise（新しい Mac の既存手順）。FileVault はオフのまま（自動ログインと両立しない）
-2. `bash scripts/host-setup.sh` をフラグ無しで流す（sshd・リモートログイン・pmset・自動ログイン・Brewfile・Claude Code CLI。sudo と自分のパスワードを聞かれる）。もう一度流して `changed=0` になることを確認する。詳細は [VERIFY.md](../VERIFY.md) の「ホスト → 準備」
+2. `bash scripts/host-setup.sh` をフラグ無しで流す（sshd・リモートログイン・pmset・自動ログイン・Brewfile・Claude Code CLI。sudo と自分のパスワードを聞かれる）。新しい Mac では先に `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` → `sudo xcodebuild -license accept` を済ませる（ライセンス未同意だと `git` / `gh` まで止まる。Terminal 側の参照先が CommandLineTools だと `xcodebuild` 自体が見つからない）。もう一度流して `changed=0` になることを確認する。詳細は [VERIFY.md](../VERIFY.md) の「ホスト → 準備」
 3. GUI の残り（スクリプト末尾の「人が続きをやること」に出る）: リモートログインの「リモートユーザーにフルディスクアクセスを許可」、`open -a Tailscale` → Sign in → 管理画面で **Disable key expiry**
 4. iPhone の公開鍵を `~/.ssh/authorized_keys` に登録し、`bash scripts/host-setup.sh --dry-run` で `fda` / `tailscale` / `authorized_keys` が全部 `ok` になるまで戻る
 5. アプリの設定画面でホスト名を mini の MagicDNS 名（`Tailscale status --json` の `Self.DNSName`）に変える。実機への焼き込みは VERIFY.md「接続設定と鍵 → 実機」

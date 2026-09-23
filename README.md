@@ -2,7 +2,7 @@
 
 iPhone から Mac に SSH で入り、tmux 上のターミナルで Claude Code・Codex を操作する iOS アプリ。
 
-MVP（#10 の段階 0〜8）は 2026-09-05 に完了し、MacBook Air をホストに実機で常用できる状態。本番ホストの Mac mini は未着で、到着後の作業は #12 にまとめてある。
+MVP（#10 の段階 0〜8）は 2026-09-05 に完了し、MacBook Air をホストに実機で常用していた。2026-09-23 に本番ホストの Mac mini へ切り替えた。外出先からの実測と無人復帰は #12 に残っている。
 
 ## 背景
 
@@ -23,7 +23,7 @@ MVP（#10 の段階 0〜8）は 2026-09-05 に完了し、MacBook Air をホス�
 ## 構成
 
 ```
-iPhone アプリ                          Mac（開発中は Air、本番は Mac mini）
+iPhone アプリ                          Mac mini（09-22 までは Air）
 ┌──────────────────────┐              ┌──────────────────────────┐
 │ SwiftTerm (端末画面)  │◄─ SSH+PTY ──►│ tmux new-session -A -D    │
 │ プロジェクト一覧      │◄─ SSH+exec ─►│ cat projects.json 等      │
@@ -75,7 +75,7 @@ iPhone アプリ                          Mac（開発中は Air、本番は Mac
 
 ## 残っていること
 
-- **#12 Mac mini 到着後**: 土台 → `host-setup.sh` → Tailscale → アプリの接続先を差し替え → 外出先から実測（スリープしない・DERP から直接に昇格する・再起動後に無人で戻る）。tmux サーバーを GUI ログイン側で無人起動する仕組みもここで決める（LaunchAgent はキーチェーンは読めるが `~/Library/CloudStorage` の読み取りが TCC で止まる）
+- **#12 Mac mini の実測**: セットアップと接続先の差し替えは 2026-09-23 に済んだ。残りは外出先から実測（スリープしない・DERP から直接に昇格する・再起動後に無人で戻る）。tmux サーバーを GUI ログイン側で無人起動する仕組みもここで決める（LaunchAgent はキーチェーンは読めるが `~/Library/CloudStorage` の読み取りが TCC で止まる）
 - **#14 SwiftTerm の更新**: PR #657 を含むリリースが出たら `WheelScrollingTerminalView` を消す
 
 ## 開発

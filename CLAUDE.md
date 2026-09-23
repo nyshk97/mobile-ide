@@ -1,6 +1,6 @@
 # mobile-ide
 
-iPhone から Mac mini（開発中は MacBook Air）に SSH 接続し、tmux 上のターミナル・Claude Code・Codex を操作する iOS アプリ。設計・構成は [README.md](README.md)、動作確認は [VERIFY.md](VERIFY.md)、各段階の計画は `docs/plans/` を参照。
+iPhone から Mac mini（2026-09-22 までは MacBook Air）に SSH 接続し、tmux 上のターミナル・Claude Code・Codex を操作する iOS アプリ。設計・構成は [README.md](README.md)、動作確認は [VERIFY.md](VERIFY.md)、各段階の計画は `docs/plans/` を参照。
 
 ## 動作確認の癖
 
