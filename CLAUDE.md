@@ -5,6 +5,11 @@ iPhone から Mac mini（2026-09-22 までは MacBook Air）に SSH 接続し、
 ## 動作確認の癖
 
 - **自走検証を環境変数の上書きだけで回すと、設定の保存・復元の経路を一度も通らない**: このアプリの自走検証は `MOBILE_IDE_HOST` / `MOBILE_IDE_USER` などで接続先を注入して起動する。この上書きは**保存しない**設計（`ConnectionSettings` の init は override を優先するが didSet を通らない）なので、上書き起動ばかりで検証していると「設定画面で入力 → UserDefaults に保存 → 通常起動で復元」の経路を一度も踏まない。実際、接続設定が未保存のまま実機の通常起動でプロジェクト一覧が丸ごと出ない事故があった（自走は全部上書き起動で PASS していた）。**上書き注入とは別に、注入なしで起動して保存値だけで動く経路を最低一度は通す**（`MOBILE_IDE_HOST` 等を付けずに起動して `HOME settings ... configured=true` と `PROJECTS loaded` が出るか）。実機に設定を焼き込むときの `MOBILE_IDE_SAVE_SETTINGS=1` は、UserDefaults を横から書くのではなく setter（= 手入力と同じ didSet）を呼ぶ実装にしてあり、これ自体が保存経路の検証になる。
+- **ログの目印に新しいプレフィックス（`GITHUB ` 等）を作ったら、`scripts/console-run.py` の `MARKERS` にも足す**: 足さないとその行は黙って捨てられ、`--until` も成立しない（アプリは正しく動いているのに「ログが出ない」に見える）。2026-09-27 に実例
+
+## 実装の癖
+
+- **Citadel の `executeCommand` は、終了コードが 0 以外のときだけでなく stderr に 1 バイトでも出ると throw して stdout を捨てる**: `git clone` の進捗表示や gh の警告だけでも失敗扱いになり、エラー文を画面に出せない。ホストで実行するコマンドは全部 `2>&1` にして、終了コードは `echo "---EXIT $?---"` の行で受け取り、コマンド自体は必ず 0 で終える（`GitHubRepoLoader.splitExits`）。2026-09-27 に実例
 
 ## ホスト側の癖
 
