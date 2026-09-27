@@ -47,7 +47,8 @@ final class ProjectListModel {
             apply(fetched)
             phase = .loaded(Date())
             let alive = allRows.filter { $0.sessionState != .none }.map(\.sessionName)
-            print("PROJECTS loaded pinned=\(pinned.count) others=\(others.count) alive=\(alive.joined(separator: ","))")
+            let extra = paths.count - fetched.file.projects.count
+            print("PROJECTS loaded pinned=\(pinned.count) others=\(others.count) unregistered=\(extra) alive=\(alive.joined(separator: ","))")
         } catch let failure as ConnectFailure {
             phase = .failed(failure)
             print("PROJECTS failed \(failure.description)".replacingOccurrences(of: "\n", with: " "))
@@ -57,9 +58,10 @@ final class ProjectListModel {
         }
     }
 
-    /// 取得結果を行に組み立てる。ピン留めは配列順（= PolePole のピン順）、その他は lastOpenedAt 降順
+    /// 取得結果を行に組み立てる。ピン留めは配列順（= PolePole のピン順）、その他は lastOpenedAt 降順。
+    /// PolePole に未登録の git リポジトリ（clone しただけのもの等）も「その他」に混ぜる。並びは `.git/index` の mtime
     func apply(_ fetched: ProjectListLoader.Fetched) {
-        let projects = fetched.file.projects
+        let projects = fetched.file.projects + Self.unregistered(fetched.repos, registered: fetched.file.projects)
         let names = TmuxSessionName.names(forPaths: projects.map(\.path))
         let sessions = Dictionary(fetched.sessions.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         func row(_ project: Project) -> Row {
@@ -76,5 +78,29 @@ final class ProjectListModel {
         others = projects.filter { !$0.isPinned }
             .sorted { ($0.lastOpenedAt ?? .distantPast) > ($1.lastOpenedAt ?? .distantPast) }
             .map(row)
+        paths = projects.map(\.path)
+        repos = fetched.repos
+    }
+
+    /// 一覧に出ている全パス（未登録の repo を含む）。セッション名はこの集合で決まる
+    private(set) var paths: [String] = []
+    /// 直近に取れた `~/` の git リポジトリ
+    private(set) var repos: [LocalRepo] = []
+
+    static func standardize(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    /// projects.json に同じパスが無い repo を Project にする。id はパス
+    static func unregistered(_ repos: [LocalRepo], registered: [Project]) -> [Project] {
+        let known = Set(registered.map { standardize($0.path) })
+        return repos.filter { !known.contains(standardize($0.path)) }.map { repo in
+            Project(
+                id: repo.path,
+                path: repo.path,
+                displayName: URL(fileURLWithPath: repo.path).lastPathComponent,
+                lastOpenedAt: repo.modifiedAt
+            )
+        }
     }
 }

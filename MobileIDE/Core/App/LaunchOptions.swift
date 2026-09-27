@@ -26,6 +26,9 @@ import Foundation
 ///   `TERMINAL surface deinit` / `TERMINAL session deinit` / `TERMINAL view released` が出ることでリークしていないことを見る。
 ///   `MOBILE_IDE_OPEN_TIMES=<回>`（DEBUG のみ、既定 1）で `MOBILE_IDE_OPEN_PROJECT` の自動オープンを閉じるたびに繰り返す
 ///   （端末 view は UIKit のキーボードが最後の first responder として 1 個だけ握るので、2 回目の close で 1 回目の view が解放されたかを見る）
+/// - `MOBILE_IDE_OPEN_GITHUB=1`（DEBUG のみ）: 起動直後に「GitHub から追加」を開く
+/// - `MOBILE_IDE_CLONE_REPO=<owner/name>`（DEBUG のみ）: 「GitHub から追加」の一覧を読み終えたらその行をタップする
+///   （未 clone なら clone → 端末、clone 済みなら端末）。`GITHUB loaded` / `GITHUB clone ok|failed` が出る
 /// - `MOBILE_IDE_CONNECTION_TEST=1`: 起動直後に設定画面を開いて接続テストを実行する
 /// - `MOBILE_IDE_HOST` / `MOBILE_IDE_PORT` / `MOBILE_IDE_USER`: 接続設定を上書き（保存はしない）
 /// - `MOBILE_IDE_SAVE_SETTINGS=1`（DEBUG のみ）: 上書き値を UserDefaults にも保存する。手入力と同じ保存経路（setter → didSet）を自走検証・焼き込みに使う
@@ -124,6 +127,20 @@ enum LaunchOptions {
         return env["MOBILE_IDE_OPEN_TIMES"].flatMap(Int.init) ?? 1
         #else
         return 1
+        #endif
+    }
+    static var openGitHub: Bool {
+        #if DEBUG
+        return env["MOBILE_IDE_OPEN_GITHUB"] == "1"
+        #else
+        return false
+        #endif
+    }
+    static var cloneRepo: String? {
+        #if DEBUG
+        return env["MOBILE_IDE_CLONE_REPO"].flatMap { $0.isEmpty ? nil : $0 }
+        #else
+        return nil
         #endif
     }
     static var connectionTest: Bool { env["MOBILE_IDE_CONNECTION_TEST"] == "1" }

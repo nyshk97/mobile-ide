@@ -93,6 +93,7 @@ ssh -o BatchMode=yes -tt localhost 'zsh -ic "which tmux"'   # /opt/homebrew/bin/
 - **端末のプロンプトが素の `user@host dir %` になり mise / starship が `Operation not permitted` を出す**ときは、tmux サーバーが FDA を失っている（sshd 自身は読めていても、起動済みのサーバーは別）。`ssh localhost 'PATH=/opt/homebrew/bin:$PATH; tmux -L probe new-session -d "cat ~/.config/mise/config.toml > /tmp/tcc.out 2>&1"; sleep 1; cat /tmp/tcc.out; tmux -L probe kill-server'` で新サーバーなら読めることを確認し、`tmux kill-server` で作り直す（全セッションが消える。2026-09-05 に実例）
 - **tmux 内で `claude` を起動すると「Not logged in · Run /login」になる**ときは、tmux サーバーが sshd から起動されていてログインキーチェーンが閉じている（Claude Code の資格情報はログインキーチェーンにある）。サーバーは GUI ログインセッション側から起動しておく: Mac の Terminal / Claude Code から `tmux new -d -s bootstrap; tmux set -g exit-empty off; tmux kill-session -t bootstrap`（`exit-empty off` でセッションが 0 でもサーバーが残る）。切り分けは `ps -o ppid= -p $(tmux display -p '#{pid}')` の親が launchd で、サーバー起動時の親が sshd だったかどうか（2026-09-05 に実例。Mac mini でどう起こすかは #12。LaunchAgent はキーチェーンは読めるが CloudStorage の読み取りが TCC で止まる → docs/tailscale.md「未解決」）
 - **Mac mini の Claude Code は長期トークンで認証している（2026-09-27〜）**: `claude setup-token` で発行したトークン（有効期限 1 年。**2027-09 頃に再発行**）を mini の `~/.config/claude-token`（600、Dropbox・git の外）に置き、dotfiles の `.zshrc` が `CLAUDE_CODE_OAUTH_TOKEN` に読み込む。キーチェーンを使わないので、上の sshd 起動の問題もログイン切れ（iPhone からはブラウザのログインを完了できない）も起きない。確認は SSH 越しに `zsh -ic 'claude auth status'` が `"authMethod": "oauth_token"` を出すこと。**既に開いているシェルと、その中で起動済みの claude には効かない**（新しいシェルか `source ~/.zshrc` の後に起動し直す）。再発行は mini の画面で `claude setup-token` → トークンをコピー → Air から `ssh <mini> 'umask 077; pbpaste | tr -d "[:space:]" > ~/.config/claude-token'`（値を画面・引数に出さない）
+- **Mac mini の gh は `--insecure-storage`（`~/.config/gh/hosts.yml`）で認証している（2026-09-27〜）**: アプリの「GitHub から追加」が SSH の exec で `gh repo list` を叩くため。gh の既定はログインキーチェーン保存で、SSH からは読めず `The token in default is invalid` / `HTTP 401: Requires authentication` になる（mini 固有ではなく Air も `ssh localhost` 経由だと同じ）。入れ直しは mini の画面のターミナルで `gh auth token | gh auth login --with-token --insecure-storage`（値は画面に出ない）。確認は `ssh <mini> 'PATH=/opt/homebrew/bin:$PATH; gh auth status'` が `(/Users/d0ne1s/.config/gh/hosts.yml)` を出すこと。clone は gh でなく `git clone git@github.com:…`（SSH 鍵。`ssh -T git@github.com` が `Hi nyshk97!`）なので gh の認証とは独立
 
 ### ClientAlive の確認
 
@@ -444,3 +445,29 @@ python3 scripts/verify-composer.py   # 8 シナリオ 12 項目（SUMMARY: 12 / 
 - 切替ボタン → 入力欄が消えて端末にキーボードが付く。`ls` + tab で補完が効く。戻すと下書きが残っている
 - アプリを閉じて開き直す → 下書きとモードが残っている
 - 折りたたみ内側画面で入力欄が 1 段で収まり、キーボードを出しても端末が数行は見える
+
+## GitHub から追加（未登録 repo の表示）
+
+ホームの「+」で、ホストの `gh repo list`（個人 + `GitHubRepoLoader.organizations`）を並べる。origin が一致する clone がホストの `~/*` / `~/*/*` にあれば clone 済み。未 clone をタップすると `~/<repo名>` に `git clone` して端末を開く。ホームの「その他」には PolePole の `projects.json` に無い git repo も混ざる（`projects.json` には書かない）。目印行は `GITHUB loaded total=<n> cloned=<n>` / `GITHUB clone ok path=…` / `GITHUB clone failed …` / `PROJECTS loaded … unregistered=<n>`。
+
+### 自走検証（シミュレータ → mini）
+
+```sh
+E="--env MOBILE_IDE_HOST=tsubasamac-mini.tail9fb38b.ts.net --env MOBILE_IDE_USER=d0ne1s"
+python3 scripts/console-run.py ${=E} --env MOBILE_IDE_OPEN_GITHUB=1 --until "GITHUB"                      # 件数を mini の gh と突き合わせる
+ssh <mini> 'ls -d ~/<name>'                                                                                   # clone 先が無いことを先に確かめる
+python3 scripts/console-run.py ${=E} --env MOBILE_IDE_OPEN_GITHUB=1 --env MOBILE_IDE_CLONE_REPO=nyshk97/<name> --until "TERMINAL connected" --keep
+python3 scripts/console-run.py ${=E} --until "PROJECTS"                                                      # others と unregistered が 1 増える
+ssh <mini> 'PATH=/opt/homebrew/bin:$PATH; tmux kill-session -t <name>; /bin/rm -rf ~/<name>'                 # 後片付け
+```
+
+- `total` は `gh repo list --no-archived --limit 500 --json name -q length` を個人と各 org で足した数、`cloned` は走査で origin が GitHub の repo 数（同じ repo の clone が複数あれば 1 件）
+- clone に使う repo は小さいもの（`gh repo list --json nameWithOwner,diskUsage` で選ぶ。2026-09-27 は `nyshk97/gitnote-test1`）。**clone 前に mini に無いことと、後片付けの前に dir と tmux セッションがあったことを確かめる**（無いまま消しても空振りで PASS に見える）
+- 既存パスの失敗経路: 同名の空ディレクトリを mini に作ってから `MOBILE_IDE_CLONE_REPO` → `GITHUB clone failed exists path=…` とアラートが出て、ディレクトリの中身が空のまま
+- gh の認証切れ: シミュレータの保存値が Air（127.0.0.1）なら、上書き無しで `MOBILE_IDE_OPEN_GITHUB=1` を付けるだけで `HTTP 401` と対処コマンドのヒントが出る（Air の gh はキーチェーンのまま）
+- Citadel の exec は stderr に出力があるだけで throw して stdout を捨てるので、ホストで叩くコマンドは全部 `2>&1` + `---EXIT n---` で終了コードを受け取る形にしてある。新しくコマンドを足すときも同じにする
+
+### 実機（手で確認）
+
+- 「+」→ Air でだけ作ったプロジェクトに「未 clone」→ タップで clone されて端末が開き、Claude Code を起動できる
+- 戻るとホームの「その他」に出ている。アプリを開き直しても出る

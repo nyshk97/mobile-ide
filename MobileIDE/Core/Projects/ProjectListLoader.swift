@@ -9,17 +9,19 @@ struct TmuxSession: Hashable {
     var activity: Date?
 }
 
-/// PolePole の projects.json と tmux のセッション一覧を、SSH の exec 1 往復で取る。
+/// PolePole の projects.json と tmux のセッション一覧、`~/` の git リポジトリを、SSH の exec 1 往復で取る。
 enum ProjectListLoader {
     /// exec チャネルは .zshrc を読まないので PATH を前置きする。tmux サーバーが無いときの exit 1 は `|| true` で吸収。
     /// 列はスペース区切りで**名前を最後**に置く（名前にスペースが入りうる。タブ区切りは Citadel の exec 経路で `_` に化けた）
-    static let command = "PATH=/opt/homebrew/bin:$PATH; cat \"$HOME/Library/Application Support/polepole/projects.json\"; printf '\\n---SESSIONS---\\n'; tmux list-sessions -F '#{session_attached} #{session_activity} #{session_name}' 2>/dev/null || true"
+    static let command = "PATH=/opt/homebrew/bin:$PATH; cat \"$HOME/Library/Application Support/polepole/projects.json\"; printf '\\n---SESSIONS---\\n'; tmux list-sessions -F '#{session_attached} #{session_activity} #{session_name}' 2>/dev/null || true; printf '\\n---REPOS---\\n'; " + LocalRepoScan.command
 
     private static let separator = "---SESSIONS---"
+    private static let reposSeparator = "---REPOS---"
 
     struct Fetched {
         var file: ProjectsFile
         var sessions: [TmuxSession]
+        var repos: [LocalRepo] = []
     }
 
     @MainActor
@@ -42,7 +44,11 @@ enum ProjectListLoader {
             throw ConnectFailure.other("一覧の応答が壊れています（区切りが無い）")
         }
         let jsonPart = text[..<range.lowerBound]
-        let sessionsPart = text[range.upperBound...]
+        // REPOS が無い応答（古いコマンド）でも一覧は出す
+        let rest = text[range.upperBound...]
+        let reposRange = rest.range(of: reposSeparator)
+        let sessionsPart = reposRange.map { rest[..<$0.lowerBound] } ?? rest
+        let repos = reposRange.map { LocalRepoScan.parse(rest[$0.upperBound...]) } ?? []
         let json = jsonPart.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !json.isEmpty else {
             throw ConnectFailure.other("projects.json が見つかりません（PolePole が未インストール?）")
@@ -63,6 +69,6 @@ enum ProjectListLoader {
                 activity: Double(cols[1]).map { Date(timeIntervalSince1970: $0) }
             )
         }
-        return Fetched(file: file, sessions: sessions)
+        return Fetched(file: file, sessions: sessions, repos: repos)
     }
 }

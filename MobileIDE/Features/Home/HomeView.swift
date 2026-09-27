@@ -5,6 +5,7 @@ struct HomeView: View {
     enum Route: Hashable {
         case terminal(TerminalTarget)
         case settings
+        case addFromGitHub
     }
 
     @Environment(ConnectionSettings.self) private var settings
@@ -14,7 +15,8 @@ struct HomeView: View {
     @State private var model = ProjectListModel()
     /// 自走検証（MOBILE_IDE_TERMINAL_AUTORUN / MOBILE_IDE_CONNECTION_TEST）のときは該当画面を最初から開く
     @State private var path: [Route] = LaunchOptions.terminalAutorun ? [.terminal(.mobileIDE)]
-        : LaunchOptions.connectionTest ? [.settings] : []
+        : LaunchOptions.connectionTest ? [.settings]
+        : LaunchOptions.openGitHub ? [.addFromGitHub] : []
     @State private var autoOpenCount = 0
 
     var body: some View {
@@ -46,9 +48,20 @@ struct HomeView: View {
                 switch route {
                 case .terminal(let target): TerminalScreen(target: target)
                 case .settings: SettingsScreen()
+                case .addFromGitHub:
+                    // 端末から戻ったらホームに着くよう、GitHub の画面を置き換えて開く（戻るとホームが再取得される）
+                    GitHubRepoScreen(knownPaths: model.paths) { target in
+                        path = [.terminal(target)]
+                    }
                 }
             }
             .toolbar {
+                if settings.isConfigured {
+                    NavigationLink(value: Route.addFromGitHub) {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("GitHub から追加")
+                }
                 NavigationLink(value: Route.settings) {
                     Image(systemName: "gear")
                 }

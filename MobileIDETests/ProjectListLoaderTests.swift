@@ -62,6 +62,65 @@ final class ProjectListLoaderTests: XCTestCase {
         XCTAssertEqual(model.others.map(\.sessionName), ["mobile-ide"])
         XCTAssertEqual(model.others.map(\.sessionState), [.alive])
     }
+
+    /// 2026-09-27 の mini の走査結果の抜粋 + 未登録 2 件（1 件は同名衝突、1 件は origin なし）
+    static let reposFixture = fixture + """
+    ---REPOS---
+    1790176554 https://github.com/nyshk97/mobile-ide.git /Users/d0ne1s/mobile-ide
+    1790169827 git@github.com:d0ne1s-mikkame/form.git /Users/d0ne1s/dm/form
+    1790169900 git@github.com:nyshk97/form.git /Users/d0ne1s/form
+    1790169000 - /Users/d0ne1s/with space
+
+    """
+
+    func testParseRepos() throws {
+        let fetched = try ProjectListLoader.parse(Self.reposFixture)
+        XCTAssertEqual(fetched.sessions.map(\.name), ["mobile-ide", "form", "with space"])
+        XCTAssertEqual(fetched.repos.map(\.path), ["/Users/d0ne1s/mobile-ide", "/Users/d0ne1s/dm/form", "/Users/d0ne1s/form", "/Users/d0ne1s/with space"])
+        XCTAssertEqual(fetched.repos.map(\.slug), ["nyshk97/mobile-ide", "d0ne1s-mikkame/form", "nyshk97/form", nil])
+        XCTAssertEqual(fetched.repos[0].modifiedAt, Date(timeIntervalSince1970: 1_790_176_554))
+    }
+
+    @MainActor
+    func testApplyAddsOnlyUnregisteredReposToOthers() throws {
+        let fetched = try ProjectListLoader.parse(Self.reposFixture)
+        let model = ProjectListModel()
+        model.apply(fetched)
+        XCTAssertEqual(model.pinned.map(\.project.displayName), ["IS"])
+        // mobile-ide は projects.json にあるので重複しない。その他は lastOpenedAt / mtime の降順で混ざる
+        // 未登録 repo の mtime（2026-09-23 頃）は mobile-ide の lastOpenedAt（2026-09-04）より新しい
+        XCTAssertEqual(model.others.map(\.project.path), [
+            "/Users/d0ne1s/form",
+            "/Users/d0ne1s/dm/form",
+            "/Users/d0ne1s/with space",
+            "/Users/d0ne1s/mobile-ide",
+        ])
+        // 同名の form は親ディレクトリで区別され、既存の tmux セッション "form" には紐づかない
+        let byPath = Dictionary(uniqueKeysWithValues: model.allRows.map { ($0.project.path, $0) })
+        XCTAssertEqual(byPath["/Users/d0ne1s/form"]?.sessionName, "form-d0ne1s")
+        XCTAssertEqual(byPath["/Users/d0ne1s/dm/form"]?.sessionName, "form-dm")
+        XCTAssertEqual(byPath["/Users/d0ne1s/with space"]?.sessionName, "with-space")
+        XCTAssertEqual(model.paths.count, 5)
+    }
+
+    @MainActor
+    func testUnregisteredMatchesStandardizedPath() {
+        let registered = [Project(id: "a", path: "/Users/x/app/", displayName: "app")]
+        let repos = [LocalRepo(path: "/Users/x/app", slug: nil, modifiedAt: nil)]
+        XCTAssertEqual(ProjectListModel.unregistered(repos, registered: registered), [])
+    }
+}
+
+final class GitHubSlugTests: XCTestCase {
+    func testNormalize() {
+        XCTAssertEqual(GitHubSlug.normalize("git@github.com:nyshk97/ide.git"), "nyshk97/ide")
+        XCTAssertEqual(GitHubSlug.normalize("https://github.com/nyshk97/Mobile-IDE.git"), "nyshk97/mobile-ide")
+        XCTAssertEqual(GitHubSlug.normalize("https://github.com/nyshk97/mobile-ide/"), "nyshk97/mobile-ide")
+        XCTAssertEqual(GitHubSlug.normalize("ssh://git@github.com/d0ne1s-mikkame/dm"), "d0ne1s-mikkame/dm")
+        XCTAssertNil(GitHubSlug.normalize("-"))
+        XCTAssertNil(GitHubSlug.normalize("git@gitlab.com:a/b.git"))
+        XCTAssertNil(GitHubSlug.normalize("https://github.com/nyshk97"))
+    }
 }
 
 final class ProjectColorTests: XCTestCase {
